@@ -1,0 +1,102 @@
+Load libraries
+```{r}
+library(lubridate)
+library(tidyverse)
+```
+
+Load data
+```{r}
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+
+ppt <- readRDS("../Data/weather.RDS")
+map <- readRDS("../Data/prel_wetup_map.RDS")
+
+otu <- readRDS("../Data/prel_wetup_votu_tmean75.RDS")
+#Remove singletons
+otu <- otu[rowSums(otu>0) > 1, ]
+```
+
+Plot the richness trends across the two time points
+```{r}
+richness = data.frame(SampleID = colnames(otu),
+                      Richness = colSums(otu>0))
+
+a <- richness %>% 
+  inner_join(map, by = "SampleID") %>% 
+  mutate(TimeFctr = ifelse(Time == 0, "Pre-wetup\n(0 hrs.)", "Post-wetup\n(336 hrs.)")) %>% 
+  mutate(TimeFctr = fct_relevel(TimeFctr, "Pre-wetup\n(0 hrs.)")) %>% 
+  #ggplot(aes(TimeFctr, Richness, color = Profile2)) +
+  ggplot(aes(TimeFctr, Richness, color = Soil)) +
+  geom_boxplot() +
+  geom_point(alpha = 0.7, size = 3) +
+  facet_grid(Soil ~ Profile2) +
+  #scale_color_manual(values = profile.pal) +
+  scale_color_manual(values = soil.pal) +
+  xlab("Time point\n(hrs. after wetup)") +
+  ylab("Richness\n(#vOTUs)") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        legend.position = "none",
+        strip.text = element_text(color = "white"),
+        strip.background = element_rect(fill = "gray25"))
+
+a
+```
+
+Plot the daily precipitation trends in the Hopland sites highlighting when the soils were harvested for each experiment
+```{r}
+#Data frame with collection dates
+collection.date <- data.frame(Experiment = c("Nicolas et al., 2022", "This study\n(preliminary experiment)", "This study\n(main experiment)"),
+                              Date = lubridate::ymd(c("2018-08-28", "2019-11-16", "2020-10-30"))) 
+
+#Data frame with the difference between the collection date and the earliest precipitation event ≥5 mm
+dry.period <- ppt %>% 
+  ungroup() %>% 
+  filter(Soil == "Hopland") %>% 
+  filter(TotalPrecipitation > 5) %>% 
+  mutate(Period = case_when(Date < lubridate::ymd("2018-08-29") ~ "Nicolas et al., 2022",
+                            Date < lubridate::ymd("2019-11-16") ~ "This study (preliminary experiment)",
+                            Date < lubridate::ymd("2020-10-30") ~ "This study (main experiment)")) %>% 
+  mutate(Reference = case_when(Date < lubridate::ymd("2018-08-29") ~ lubridate::ymd("2018-08-29"),
+                            Date < lubridate::ymd("2019-11-16") ~ lubridate::ymd("2019-11-16"),
+                            Date < lubridate::ymd("2020-10-30") ~ lubridate::ymd("2020-10-30"))) %>% 
+  mutate(TemporalDifference = Reference - Date) %>% 
+  group_by(Period) %>% 
+  mutate(MinDifference = min(TemporalDifference)) %>% 
+  ungroup() %>% 
+  filter(TemporalDifference == MinDifference) %>% 
+  mutate(Label = paste(as.integer(TemporalDifference), "days"))
+
+#Plot
+b <- ppt %>% 
+  ungroup() %>% 
+  filter(Soil == "Hopland") %>% 
+  filter(Date <= lubridate::ymd("2021-07-01")) %>% 
+  ggplot() +
+  geom_line(aes(Date, TotalPrecipitation, color = Soil), size = 1) +
+  scale_color_manual(values = soil.pal) +
+  geom_vline(data = collection.date, aes(xintercept = Date), linetype = 2) +
+  geom_segment(data = dry.period, aes(x = Date, xend = Reference, y = TotalPrecipitation + 0.5, yend = TotalPrecipitation + 0.5)) +
+  geom_text(data = collection.date, aes(x = Date - 25, y = 35, label = Experiment), angle = 90, hjust = 1) +
+  geom_point(data = dry.period, aes(x = Date, y = TotalPrecipitation + 0.5)) +
+  geom_point(data = dry.period, aes(x = Reference, y = TotalPrecipitation + 0.5)) +
+  geom_text(data = dry.period, aes(x = Reference - (TemporalDifference/2), y = TotalPrecipitation + 1.5, label = Label)) +
+  facet_grid(Soil ~ .) +
+  ylab("Daily rainfall\n(mm)") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        strip.text = element_text(color = "white"),
+        strip.background = element_rect(fill = "gray25"),
+        legend.position = "none")
+
+
+b
+```
+
+```{r}
+#915:695
+top <- plot_grid(NA,a,NA, nrow = 1, rel_widths = c(1,2,1), labels = c(NA,"a", NA), label_size = 15)
+plot_grid(top,b, ncol = 1, labels = c(NA, "b"), label_size = 15)
+
+```
+

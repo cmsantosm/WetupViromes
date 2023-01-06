@@ -1,0 +1,295 @@
+Load libraries
+```{r}
+source("../General/general_functions.R")
+library(RColorBrewer)
+library(rcartocolor)
+library(cowplot)
+library(broom)
+library(tidyverse)
+```
+
+Determine paletttes and plotting parameters
+```{r}
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+profile.pal <- brewer.pal(11, "PuOr")[c(10,8,3)]
+time.pal <- brewer.pal(11, "BrBG")[c(2,4,11:6)]
+overlap.pal <- RColorBrewer::brewer.pal(9, "Greys")[c(3,5,7,9)]
+text.size <- 10
+```
+
+Load and filter data
+```{r}
+asv <- readRDS("../Data/amplicon_rare_asv_table.RDS")
+#Remove singletons
+asv <- asv[rowSums(asv>0) > 1,]
+asv <- asv[, colSums(asv)>0]
+
+map <- readRDS("../Data/wetup_map.RDS") %>% 
+  filter(!is.na(ampSampleID)) %>% 
+  mutate(SampleID = ampSampleID) 
+```
+
+PCoA of all soil types
+```{r}
+#Get relative abundances and normalize
+asv.norm <- asv %>% rel_ab() %>% log_norm()
+
+#Calculate BC dissimilarities
+asv.dist <- beta_div_dist(asv.norm)
+
+#Get PCoA scores and eigenvalues
+asv.pcoa.axes <- pcoa_axes(asv.dist, map)
+asv.pcoa.eig <- pcoa_eigval(asv.dist, map)
+
+#Plot
+asv.soil.pcoa.p <- asv.pcoa.axes %>% 
+  mutate(Set = "ASV profiles") %>% 
+  ggplot(aes(Axis.1, Axis.2, fill = Soil2, shape = Profile2)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  xlab(paste("PCo1 (", asv.pcoa.eig$Eigval[1], "%)", sep = "")) +
+  ylab(paste("PCo2 (", asv.pcoa.eig$Eigval[2], "%)", sep = "")) +
+  scale_fill_manual(name = "Soil type", values = soil.pal) +
+  scale_shape_manual(name = "Profile", values = c(21,24)) +
+  guides(fill = "none") +
+  facet_wrap(~ Set) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"),
+        legend.position = "none",
+        legend.title = element_blank()) 
+
+asv.soil.pcoa.p
+```
+
+Richness analysis
+```{r}
+#Calculate the aggregated richness across all replicates for a particular time point
+aggregated.richness <- asv %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  group_by(Soil2, Time, OTU_ID) %>% 
+  dplyr::count() %>% 
+  group_by(Soil2, Time) %>% 
+  summarise(AggregatedRichness = n()) %>% 
+  ungroup() 
+
+#Plot
+asv.richness.p <- asv %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  group_by(SampleID) %>% 
+  summarise(Richness = n()) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  ggplot(aes(Time, Richness)) +
+  geom_point(aes(color = Soil2), size = 1, stroke = 1, alpha = 0.5, shape = 16) +
+  geom_line(data = . %>% group_by(Soil2, Time) %>% summarise(MeanRichness = mean(Richness)), 
+            aes(Time, MeanRichness, color = Soil2), size = 0.75) +
+  geom_line(data = aggregated.richness, aes(Time, AggregatedRichness), color = "gray25", size = 0.75) +
+  xlab("Time point (hrs. after wetup)") +
+  ylab("Community richness (#ASVs)") +
+  scale_color_manual(name = "Soil type", values = soil.pal) +
+  facet_grid(. ~ Soil2) +
+  ylim(0,NA) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"))
+
+
+asv.richness.p
+```
+
+PCoAs displaying temporal patterns for each soil type
+```{r}
+#Function to filter the distance matrix based on soil type
+soil_dist <- function(soil.type, profile.otu.norm, profile.dist){
+  soil.map <- map %>% filter(Soil == soil.type)
+  soil.dist <- profile.dist[rownames(profile.dist) %in% soil.map$SampleID, colnames(profile.dist) %in% soil.map$SampleID]
+}
+
+#Filter distance matrix
+asv.jpb.dist <- soil_dist("JepsonBot", asv.norm, asv.dist)
+asv.jpt.dist <- soil_dist("JepsonTop", asv.norm, asv.dist)
+asv.hop.dist <- soil_dist("Hopland", asv.norm, asv.dist)
+asv.mcl.dist <- soil_dist("McLaughlin", asv.norm, asv.dist)
+
+#Get PCoA scores and eigenvalues
+asv.jpb.pcoa.axes <- pcoa_axes(asv.jpb.dist, map) %>% mutate(Set = "ASVs")
+asv.jpb.pcoa.eig <- pcoa_eigval(asv.jpb.dist, map) %>% mutate(Set = "ASVs")
+asv.jpt.pcoa.axes <- pcoa_axes(asv.jpt.dist, map) %>% mutate(Set = "ASVs")
+asv.jpt.pcoa.eig <- pcoa_eigval(asv.jpt.dist, map) %>% mutate(Set = "ASVs")
+asv.hop.pcoa.axes <- pcoa_axes(asv.hop.dist, map) %>% mutate(Set = "ASVs")
+asv.hop.pcoa.eig <- pcoa_eigval(asv.hop.dist, map) %>% mutate(Set = "ASVs")
+asv.mcl.pcoa.axes <- pcoa_axes(asv.mcl.dist, map) %>% mutate(Set = "ASVs")
+asv.mcl.pcoa.eig <- pcoa_eigval(asv.mcl.dist, map) %>% mutate(Set = "ASVs")
+
+#Function to plot PCoAs
+pcoa_plotter <- function(soil.pcoa.axes, soil.pcoa.eig){
+  soil.pcoa.axes %>% 
+    ggplot(aes(Axis.1, Axis.2, fill = paste(Status, " ", TimeFctr, " (", Time, " hrs.)", sep = ""), shape = Profile2)) +
+    geom_point(size = 2.5, alpha = 0.8) +
+    scale_fill_manual(name = "Time point\n(hrs. post-wetup)",
+                      values = time.pal,
+                      breaks = c("Dry T0 (0 hrs.)", "Dry T6 (240 hrs.)", "Wet T1 (24 hrs.)", "Wet T2 (48 hrs.)", "Wet T3 (72 hrs.)", "Wet T4 (120 hrs.)", "Wet T5 (168 hrs.)", "Wet T6 (240 hrs.)"),
+                      labels = c("Dry T0 (0 hrs.)", "Dry T6 (240 hrs.)", "Wet T1 (24 hrs.)", "Wet T2 (48 hrs.)", "Wet T3 (72 hrs.)", "Wet T4 (120 hrs.)", "Wet T5 (168 hrs.)", "Wet T6 (240 hrs.)"),
+                      drop = FALSE) +
+    scale_shape_manual(name = "Profile",
+                       values = c(21,24,22),
+                       breaks = c("Total MetaG"),
+                       labels = c("Total DNA"),
+                       drop = FALSE) +
+    guides(fill = guide_legend(override.aes = list(shape = 21)),
+           shape = guide_legend(override.aes = list(fill = "black"))) +
+    xlab(paste("PCo1 (", soil.pcoa.eig$Eigval[1], "%)", sep = "")) +
+    ylab(paste("PCo2 (", soil.pcoa.eig$Eigval[2], "%)", sep = "")) +
+    scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+    facet_wrap(~ Soil2) +
+    theme_bw() + 
+    theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"))
+}
+
+#Plot
+asv.jpb.p <- pcoa_plotter(asv.jpb.pcoa.axes, asv.jpb.pcoa.eig)
+asv.jpt.p <- pcoa_plotter(asv.jpt.pcoa.axes, asv.jpt.pcoa.eig)
+asv.hop.p <- pcoa_plotter(asv.hop.pcoa.axes, asv.hop.pcoa.eig)
+asv.mcl.p <- pcoa_plotter(asv.mcl.pcoa.axes, asv.mcl.pcoa.eig)
+
+#Put together
+plot_grid(asv.hop.p + theme(legend.position = "none"),
+                           asv.mcl.p + theme(legend.position = "none"),
+                           asv.jpt.p + theme(legend.position = "none"),
+                           asv.jpb.p + theme(legend.position = "none"),
+                           get_legend(asv.hop.p),
+                           nrow = 1)
+```
+
+Temporal distance-decay analysis. 
+```{r}
+#Filter out the lower triangle from the matrix so duplicated pairs are not included in stats calculations
+asv.dist.filt <- asv.dist
+asv.dist.filt[upper.tri(asv.dist.filt)] <- NA
+
+#Generate long format data frame with BC values and filter out pairs
+asv.dist.tidy <- asv.dist.filt %>% 
+  as.data.frame() %>% 
+  mutate(SampleID.x = row.names(.)) %>% 
+  gather(key = "SampleID.y", value = "Dissimilarity", -SampleID.x) %>% 
+  inner_join(map, by = c("SampleID.x" = "SampleID")) %>% 
+  inner_join(map, by = c("SampleID.y" = "SampleID")) %>% 
+  filter(!is.na(Dissimilarity)) %>% 
+  filter(SampleID.x != SampleID.y) %>% 
+  filter(Soil.x == Soil.y) %>% 
+  filter(Profile.x == Profile.y) %>% 
+  filter(Time.x > 0 & Time.y > 0) %>% 
+  filter(Status.x == "Wet" & Status.y == "Wet") %>% 
+  mutate(TemporalDifference = abs(Time.x - Time.y)) %>% 
+  mutate(Similarity = 1 - Dissimilarity) 
+
+#Retrive min and max BC similarities across the dataset
+dist.min <- min(asv.dist.tidy$Similarity)
+dist.max <- max(asv.dist.tidy$Similarity)
+
+#Function to get stats
+cor_stats_calc <- function(soil.type, set2) {
+  dist.cor <- filter(asv.dist.tidy, Soil2.x == soil.type)
+  cor <- cor.test(dist.cor$TemporalDifference, dist.cor$Similarity, method = "pearson", alternative = "two.sided") %>% tidy()
+  lm <- lm(Similarity ~ TemporalDifference, data = dist.cor) %>% tidy() %>% filter(term == "TemporalDifference")
+  dist.stats <- data.frame(r = cor$estimate,
+                             slope = lm$estimate,
+                             p.value = cor$p.value,
+                             Soil2.x = soil.type)
+  dist.stats
+}
+
+#Run stats analysis
+cor.stats <- rbind(cor_stats_calc("Jepson Mound"),
+                   cor_stats_calc("Jepson Swale"),
+                   cor_stats_calc("Hopland"),
+                   cor_stats_calc("McLaughlin"))
+
+#Generate supplementary table
+dd.supp.table <- cor.stats %>% 
+  mutate(Set = "ASVs in total DNA") %>% 
+  rename("Soil" = "Soil2.x") %>% 
+  select(Set, Soil, everything()) %>% 
+  mutate(r = signif(r, 3),
+         slope = signif(slope, 3),
+         p.value = signif(p.value, 3))
+
+write.table(dd.supp.table, "../Tables/supp_table_asv_dist_decay.tsv", sep = "\t", quote = F, row.names = F)
+```
+
+Plot distance-decay analysis
+```{r}
+#Function to plot the distance-decay relationships
+dist_plotter <- function(soil.type){
+  asv.dist.tidy %>% 
+    filter(Soil2.x == soil.type) %>% 
+    ggplot(aes(TemporalDifference, Similarity)) +
+    geom_point(alpha = 0.5, size = 1) +
+    geom_smooth(method = "lm", se = F, aes(color = Soil2.x)) +
+    xlab("Distance between\ntime points (hrs.)") + 
+    ylab("Bray-Curtis similarity") +
+    ylim(dist.min, dist.max) +
+    facet_grid(. ~ Soil2.x) +
+    scale_color_manual(values = soil.pal,
+                       breaks = c("Hopland", "McLaughlin", "Jepson Mound", "Jepson Swale")) +
+    theme_bw() +
+    theme(text = element_text(size = text.size),
+          strip.background =element_rect(fill="gray25"),
+          strip.text = element_text(colour = "white"))
+    
+}
+
+#Plot  
+jpb.dist.p <- dist_plotter("Jepson Swale")
+jpt.dist.p <- dist_plotter("Jepson Mound")
+hop.dist.p <- dist_plotter("Hopland")
+mcl.dist.p <- dist_plotter("McLaughlin")
+
+plot_grid(hop.dist.p + theme(legend.position = "none"),
+          mcl.dist.p + theme(legend.position = "none"),
+          jpt.dist.p + theme(legend.position = "none"),
+          jpb.dist.p + theme(legend.position = "none"),
+          nrow = 1)
+```
+
+Put together soil PCoAs and richness results
+```{r}
+top <- plot_grid(asv.soil.pcoa.p, asv.richness.p + theme(legend.position = "none"), get_legend(asv.richness.p + theme(legend.position = "right")), 
+                 nrow = 1, align = "h", axis = "tb", rel_widths = c(1.5,2.5,1),
+                 labels = c("a", "b"), label_size = 15)
+```
+
+
+Put together time PCoAs and distance-decay results
+```{r}
+bottom <- plot_grid(asv.hop.p + theme(legend.position = "none"),
+          asv.mcl.p + theme(legend.position = "none"),
+          asv.jpt.p + theme(legend.position = "none"),
+          asv.jpb.p + theme(legend.position = "none"),
+          plot_grid(NA, get_legend(asv.jpb.p),ncol = 1, rel_heights = c(5,1)),
+          hop.dist.p + theme(legend.position = "none"),
+          mcl.dist.p + theme(legend.position = "none"),
+          jpt.dist.p + theme(legend.position = "none"),
+          jpb.dist.p + theme(legend.position = "none"),
+          NA,
+          nrow = 2,
+          align = "hv", axis = "lr",
+          labels = c("c", NA, NA, NA, NA,
+                     "d", NA, NA, NA, NA), label_size = 15)
+
+bottom
+```
+
+Final plot
+```{r}
+plot_grid(top, bottom, ncol =1 , rel_heights = c(1.25,2))
+```
+

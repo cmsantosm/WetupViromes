@@ -1,0 +1,68 @@
+Load libraries
+```{r}
+library(DESeq2)
+library(biobroom)
+
+source("../General/general_functions.R")
+library(tidyverse)
+```
+
+Load data and format
+```{r}
+counts <- readRDS("../Data/rare_votu75_count.RDS")
+map <- readRDS("../Data/wetup_map.RDS")
+
+#Remove singletons
+counts <- counts[rowSums(counts>0) > 1, ]
+counts <- counts[, match(map$SampleID, colnames(counts))]
+```
+
+Filter count table by soil type
+```{r}
+jpb.map <- filter(map, Soil == "JepsonBot" & Profile == "ViromeD" & (Status == "Wet" | TimeFctr == "T0"))
+jpb.counts <- counts[,colnames(counts) %in% jpb.map$SampleID]
+jpb.counts <- jpb.counts[rowSums(jpb.counts)>0,]
+
+jpt.map <- filter(map, Soil == "JepsonTop" & Profile == "ViromeD" & (Status == "Wet" | TimeFctr == "T0"))
+jpt.counts <- counts[,colnames(counts) %in% jpt.map$SampleID]
+jpt.counts <- jpt.counts[rowSums(jpt.counts)>0,]
+
+hop.map <- filter(map, Soil == "Hopland" & Profile == "ViromeD" & (Status == "Wet" | TimeFctr == "T0"))
+hop.counts <- counts[,colnames(counts) %in% hop.map$SampleID]
+hop.counts <- hop.counts[rowSums(hop.counts)>0,]
+
+mcl.map <- filter(map, Soil == "McLaughlin" & Profile == "ViromeD" & (Status == "Wet" | TimeFctr == "T0"))
+mcl.counts <- counts[,colnames(counts) %in% mcl.map$SampleID]
+mcl.counts <- mcl.counts[rowSums(mcl.counts)>0,]
+```
+
+Perform analysis
+```{r}
+#Function to run model and retrieve results
+get_deseq_result <- function(filt.map, filt.counts) {
+  dds <- DESeqDataSetFromMatrix(countData = filt.counts,
+                                   colData = filt.map,
+                                   design = ~ TimeFctr)
+
+  cts <- counts(dds)
+  geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+  dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+
+  dds <- DESeq(dds, test = "LRT", reduced = ~1)
+  res <- results(dds) %>% tidy() %>% dplyr::rename("OTU_ID" = "gene")
+  res
+}
+
+#Run models
+jpb.res <- get_deseq_result(jpb.map, jpb.counts) %>% mutate(Soil = "JepsonBot")
+jpt.res <- get_deseq_result(jpt.map, jpt.counts) %>% mutate(Soil = "JepsonTop")
+hop.res <- get_deseq_result(hop.map, hop.counts) %>% mutate(Soil = "Hopland")
+mcl.res <- get_deseq_result(mcl.map, mcl.counts) %>% mutate(Soil = "McLaughlin")
+
+#Aggreaget results
+all.res <- rbind(jpb.res, jpt.res, hop.res, mcl.res) %>%
+  filter(!is.na(p.value)) %>%
+  mutate(OTU.Soil = paste(OTU_ID, Soil, sep = "."))
+
+saveRDS(all.res, "../Data/rare_votu_deseq.RDS")
+```

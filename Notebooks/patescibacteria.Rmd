@@ -1,0 +1,115 @@
+Load libraries
+```{r}
+source("../General/general_functions.R")
+library(treeio)
+library(ggtree)
+library(tidyverse)
+library(cowplot)
+```
+
+Define palette and taxa to plot
+```{r}
+int.taxa <- c("Acidobacteriota", "Actinobacteriota", "Bacteroidota", "Chloroflexota", "Gemmatimonadota", "Firmicutes", "Myxococcota", "Patescibacteria", "Proteobacteria", "Thermoproteota", "Verrucomicrobiota")
+prism.pal <- carto_pal(12, "Prism")
+```
+
+Load data and filter
+```{r}
+otu <- readRDS("../Data/rare_mag25_tmean.RDS")
+#Remove singletons
+otu <- otu[rowSums(otu>0) > 1,]
+
+map <- readRDS("../Data/wetup_map.RDS")
+tax <- readRDS("../Data/mag_tax.RDS")
+tree <- read.tree("../Data/gtdbtk.unrooted.tree")
+
+#Get table with MAGs detected in DNase viromes
+vd.map <- map %>% filter(Profile == "ViromeD")
+vd.otu <- otu[,colnames(otu) %in% vd.map$SampleID]
+vd.otu <- vd.otu[rowSums(vd.otu)>0,]
+
+#Update tax file
+tax <- tax %>% 
+  mutate(Virome = MAG_ID %in% rownames(vd.otu)) %>% 
+  mutate(Phylum2 = ifelse(Phylum %in% int.taxa, as.character(Phylum), "Other")) %>% 
+  mutate(Phylum2 = fct_relevel(Phylum2, "Other"))
+```
+
+Plot tree
+```{r}
+#Trim tree to include MAGs recovered in the experiment
+to_drop <- tree$tip.label[!tree$tip.label %in% row.names(otu)]
+tree.filt <- drop.tip(tree, to_drop)
+
+#Plot
+a <- ggtree(tree.filt, layout="circular") %<+% 
+  tax + 
+  geom_tippoint(aes(color = Phylum2)) + 
+  geom_tiplab(data = . %>% filter(Virome), offset=0.03, align=TRUE, geom = 'text', aes(label = "v", color = Phylum2, alpha = "V Detected in\n+DNase virome")) +
+  scale_color_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:9,11,12)])) +
+  scale_alpha_manual(values = 1) +
+  theme(text = element_text(size = 12),
+        legend.position = "right",
+        legend.title = element_blank())
+
+a
+```
+
+Plot aggregated abundances for Patescibacteria
+```{r}
+b <- otu %>% 
+  tidy_otu() %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "ViromeD") %>% 
+  group_by(Soil2, Time, TimeFctr, OTU_ID) %>% 
+  summarise(MeanRelAb = mean(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  filter(Phylum == "Patescibacteria") %>% 
+  filter(Soil2 != "Hopland") %>% 
+  group_by(Time, TimeFctr, Soil2, Phylum) %>% 
+  summarise(AggMeanRelAb = sum(MeanRelAb)) %>% 
+  ggplot(aes(Time, AggMeanRelAb)) +
+  geom_area(stat = "identity", fill = prism.pal[8]) +
+  facet_grid(. ~ Soil2, scales = "free_y", space = "free") +
+  xlab("Time point (hrs. after wetup)") +
+  ylab("Summed abundance\nof Patescibacteria MAGs") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+b
+```
+
+Put together
+```{r}
+#590:630
+plot_grid(a,b, ncol = 1, rel_heights = c(2,1), labels = c("a", "b"), label_size = 15)
+```
+
+Generate donut plots with the taxonomic composition of MAGs recovered in the entire dataset and in viromes
+```{r}
+patesci.donut.df <- rbind(mutate(tax, Facet = "All MAGs"),
+                          tax %>% filter(MAG_ID %in% rownames(vd.otu)) %>% mutate(Facet = "MAGs detected in\n+DNase viromes")) %>% 
+  group_by(Facet, Phylum2) %>% 
+  summarise(Count = n()) %>% 
+  ungroup() %>% 
+  arrange(Facet, Phylum2) %>% 
+  group_by(Facet) %>% 
+  mutate(Fraction = Count/sum(Count)) %>% 
+  mutate(ymax = cumsum(Fraction),
+         nFacet = n()) %>% 
+  mutate(ymin = c(0, ymax[1:nFacet - 1]))
+
+
+patesci.donut.df %>% 
+  ggplot() +
+  geom_rect(aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = Phylum2)) +
+  geom_text(data = . %>% group_by(Facet) %>% summarise(Total = sum(Count)), aes(2, 0, label = Total), size = 5) +
+  scale_fill_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:9,11,12)])) +
+  coord_polar(theta="y") + 
+  xlim(c(2, 4)) +
+  facet_wrap(Facet ~ .) +
+  theme_void() +
+  theme(text = element_text(size = 12),
+        legend.position = "right")
+```

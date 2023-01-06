@@ -1,0 +1,101 @@
+Load library
+```{r}
+source("../General/general_functions.R")
+library(cowplot)
+library(tidyverse)
+```
+
+Load data
+```{r}
+otu <- readRDS("../Data/rare_votu75_tmean.RDS")
+#Remove singletons
+otu <- otu[rowSums(otu>0) > 1,]
+
+map <- readRDS("../Data/wetup_map.RDS")
+
+annotation <- readRDS("../Data/vibrant_annotation.RDS")
+```
+
+Identify integrases and excisionases in VIBRANT annotation
+```{r}
+annotation %>% filter(str_detect(Name, "[I|i]ntegrase"))
+annotation %>% filter(str_detect(Name, "[E|e]xcisionase"))
+
+annotation <- annotation %>% mutate(Lysogeny_genes = str_detect(Name, "[I|i]ntegrase") | str_detect(Name, "[E|e]xcisionase"))
+
+#Get vOTUs with at least one of these two genes
+lysogen.df <- annotation %>% 
+  filter(Lysogeny_genes) %>% 
+  group_by(OTU_ID) %>% 
+  count() %>% 
+  ungroup() %>% 
+  select(-n) %>% 
+  mutate(PredictedLysogen = TRUE)
+```
+
+Generate a data frame with the aggreaged abundances of phages predicted to be temperate
+```{r}
+lysogen.ab <- otu %>% 
+  rel_ab() %>% 
+  tidy_otu() %>% 
+  mutate(Count = Count/100) %>% 
+  left_join(lysogen.df, by = "OTU_ID") %>% 
+  mutate(PredictedLysogen = ifelse(is.na(PredictedLysogen), FALSE, TRUE)) %>% 
+  group_by(SampleID, PredictedLysogen) %>% 
+  summarise(TotalAb = sum(Count),
+            Total = sum(Count > 0)) %>% 
+  group_by(SampleID) %>% 
+  mutate(Fraction = Total/sum(Total)) %>% 
+  mutate(Percentage = Fraction * 100) %>% 
+  ungroup() %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "ViromeD") %>% 
+  filter(Status == "Wet" | TimeFctr == "T0") 
+```
+
+Plot
+```{r}
+#Abundances
+a <- lysogen.ab %>% 
+  ggplot(aes(Time, TotalAb, color = PredictedLysogen)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Soil2, Profile2, Time, PredictedLysogen) %>% summarise(Mean = mean(TotalAb)), aes(y = Mean)) +
+  ylab("Relative abundance") +
+  xlab("Time point (hrs. after wetup)") +
+  scale_color_manual(name = "Predicted\ntemperate\nphage", values = c("gray75", "gray25")) +
+  facet_grid(Profile2 ~ Soil2) +
+  ylim(0,1) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Fraction of detected vOTUs
+b <- lysogen.ab %>% 
+  ggplot(aes(Time, Percentage, color = PredictedLysogen)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Soil2, Profile2, Time, PredictedLysogen) %>% summarise(Mean = mean(Percentage)), aes(y = Mean)) +
+  ylab("% detected vOTUs") +
+  xlab("Time point (hrs. after wetup)") +
+  scale_color_manual(name = "Predicted\ntemperate\nphage", values = c("gray75", "gray25")) +
+  facet_grid(Profile2 ~ Soil2) +
+  ylim(0,100) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+left <- plot_grid(a + theme(legend.position = "none"),
+                  b + theme(legend.position = "none"),
+                  ncol = 1,
+                  align = "hv", axis = "lrbt",
+                  labels = c("a", "b"), label_size = 15)
+
+#725:465
+plot_grid(left, get_legend(a), rel_widths = c(5,1))
+```
+stats
+```{r}
+lysogen.ab %>% 
+  group_by(PredictedLysogen) %>% 
+  summarise(MeanPercentage = mean(Percentage),
+            MeanRelAb = mean(TotalAb))
+```

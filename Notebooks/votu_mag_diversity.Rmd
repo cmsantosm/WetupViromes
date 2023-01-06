@@ -1,0 +1,892 @@
+Load libraries
+```{r}
+source("../General/general_functions.R")
+library(RColorBrewer)
+library(rcartocolor)
+library(cowplot)
+library(UpSetR)
+library(eulerr)
+library(broom)
+library(tidyverse)
+```
+
+Determine paletttes and plotting parameters
+```{r}
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+profile.pal <- brewer.pal(11, "PuOr")[c(10,8,3)]
+time.pal <- brewer.pal(11, "BrBG")[c(2,4,11:6)]
+overlap.pal <- RColorBrewer::brewer.pal(9, "Greys")[c(3,5,7,9)]
+text.size <- 10
+```
+
+Load and filter data
+```{r}
+votu <- readRDS("../Data/rare_votu75_tmean.RDS")
+#Remove singletons
+votu <- votu[rowSums(votu>0) > 1,]
+votu <- votu[, colSums(votu)>0]
+
+mag <- readRDS("../Data/rare_mag25_tmean.RDS")
+#Remove singletons
+mag <- mag[rowSums(mag>0) > 1,]
+mag <- mag[, colSums(mag)>0]
+
+map <- readRDS("../Data/wetup_map.RDS")
+
+votu.metadata <- readRDS("../Data/votu_processing_metadata.RDS")
+mag.metadata <- readRDS("../Data/mag_processing_metadata.RDS")
+
+yields <- read.table("../Data/dna_yields.tsv", header = T, sep = "\t")
+```
+
+
+Plot the experimental timeline and collected profiles
+```{r}
+tmp.df <- data.frame(x = 0, y = 0)
+
+xpt.des.p <- map %>% 
+  group_by(Status.Time, Status, Time, TimeFctr) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(Position.y = case_when(Status.Time == "Dry 0" ~ 2,
+                                Status.Time == "Dry 240" ~ 3,
+                                TRUE ~ 1)) %>% 
+  mutate(Group = ifelse(Status.Time == "Dry 240", "G1", "G2")) %>% 
+  ggplot() +
+  geom_segment(data = tmp.df, x = 0, xend = -24, y = 2, yend = 3, size = 1) +
+  geom_segment(data = tmp.df, x = -24, xend = -240, y = 3, yend = 3, size = 1) +
+  geom_segment(data = tmp.df, x = 0, xend = -24, y = 2, yend = 1, size = 1) +
+  geom_segment(data = tmp.df, x = -24, xend = -240, y = 1, yend = 1, size = 1) +
+  geom_text(data = tmp.df, x = -255, y = 3, hjust = 1, angle = 90, label = "Dry") +
+  geom_text(data = tmp.df, x = -255, y = 1, hjust = 1, angle = 90, label = "Wetup") +
+  geom_point(aes(-Time, Position.y, fill = Status.Time), size = 5, shape = 21) +
+    scale_fill_manual(name = "Timpoint\n(hrs. after wetup)",
+                      values = time.pal) +
+    guides(fill = guide_legend(override.aes = list(shape = 21)),
+           shape = guide_legend(override.aes = list(fill = "black"))) +
+  geom_text(aes(-Time, Position.y, label = TimeFctr), size = 2.5) +
+  ylim(0.5,4) +
+  xlab("Time point (hrs. after wetup)") +
+  scale_x_continuous(breaks = c(0,-24,-48,-72,-120,-168,-240), limits = c(-300,0)) +
+  coord_flip() +
+  theme_classic() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "none") 
+
+## Create a data frame with all the combinations of soils, time points, and profiles that were sequenced
+seq.rep.df <- map %>% 
+  group_by(Status, Profile, Profile2, Soil, Soil2, TimeFctr, Time, Status.Time) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(Profile2 = case_when(Profile == "TotalMG" ~ "Total\nMetagenome",
+                              Profile == "ViromeD" ~ "+DNase\nVirome",
+                              Profile == "ViromeN" ~ "Untreated\nVirome")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "+DNase\nVirome", "Untreated\nVirome", "Total\nMetagenome")) %>% 
+  mutate(SeqStatus = "Sequenced\n(3 replicates)")
+
+## The two Jepson dry soils did not yield enough DNA and couldn't be sequenced. Since they are not part of the mapping file, we need to create a temporary data frame to hold this info. 
+nonseq.rep.df <- seq.rep.df %>% 
+  filter(Status == "Dry") %>% 
+  filter(Soil %in% c("Hopland", "McLaughlin")) %>% 
+  filter(Profile == "ViromeD") %>% 
+  mutate(Soil = ifelse(Soil == "Hopland", "JepsonTop", "JepsonBottom"),
+         Soil2 = ifelse(Soil2 == "Hopland", "Jepson Mound", "Jepson Swale")) %>% 
+  mutate(SeqStatus = "Not sequenced\n(low DNA yields)")
+
+all.seqs <- rbind(seq.rep.df, nonseq.rep.df)
+
+seqs.p <- all.seqs %>% 
+  ggplot(aes(Soil2, paste(Status, TimeFctr), fill = paste(Status, TimeFctr), shape = SeqStatus)) +
+  geom_point(size = 4) +
+  scale_fill_manual(name = "Timpoint\n(hrs. after wetup)",
+                    values = time.pal) +
+  scale_shape_manual(name = "", values = c(13,21)) +
+  guides(fill = "none") +
+  facet_grid(. ~ Profile2) +
+  theme_bw() +
+  scale_y_discrete(limits = rev) +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank())
+
+xpt.des.p
+seqs.p
+```
+
+Plot read recruitment boxplots
+```{r}
+#Retrieve the percent of reads mapped to vOTUs using the 75% threshold
+votu.rec.df <- votu.metadata %>% 
+  select(SampleID, PercentMapped75) %>% 
+  rename("PercentReads" = "PercentMapped75") %>% 
+  mutate(Set = "vOTU database")
+
+#Retrieve the percent of reads mapped to vOTUs using the 25% threshold
+mag.rec.df <- mag.metadata %>% 
+  select(SampleID, PercentMapped25) %>% 
+  rename("PercentReads" = "PercentMapped25") %>% 
+  mutate(Set = "MAG database")
+
+#Aggreaget vOTU and MAG results
+rec.df <- rbind(votu.rec.df, 
+                mag.rec.df) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  mutate(Profile2 = case_when(Profile == "TotalMG" ~ "Total\nMetaG",
+                              Profile == "ViromeD" ~ "+DNase\nVirome",
+                              Profile == "ViromeN" ~ "Untreated\nVirome")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "+DNase\nVirome", "Untreated\nVirome", "Total\nMetaG")) %>% 
+  mutate(Set = fct_relevel(Set, "vOTU database"))
+
+#Plot function
+plot_recruitment <- function(database.set){
+  rec.df %>% 
+    filter(Set == database.set) %>% 
+    ggplot(aes(Profile2, PercentReads)) +
+    geom_jitter(aes(color = Profile2), width = 0.35, alpha = 0.5, size = 1) +
+    geom_boxplot(aes(color = Profile2), alpha = 0, size = 1) +
+    scale_fill_manual(values = profile.pal) +
+    scale_color_manual(values = profile.pal) +
+    ylab("Recruitment to database\n(% mapped reads)") +
+    xlab("Profile") +
+    facet_wrap(~ Set, scales = "free") +
+    theme_bw() +
+    theme(text = element_text(size = text.size),
+          axis.title.x = element_blank(),
+          strip.background =element_rect(fill="gray25"),
+          strip.text = element_text(colour = "white"),
+          legend.position = "none")
+}
+
+#Plot
+votu.rec.p <- plot_recruitment("vOTU database")
+mag.rec.p <- plot_recruitment("MAG database")
+
+votu.rec.p
+mag.rec.p
+```
+
+Generate upset plots to show the overlap between profiles
+```{r}
+#Function to retrieve the ids for the taxa detected in each profile
+get_id <- function(otu, profile.id){
+  profile.map <- map %>% filter(Profile == profile.id)
+  profile.otu <- otu[,colnames(otu) %in% profile.map$SampleID]
+  profile.otu <- profile.otu[rowSums(profile.otu)>0,]
+  rownames(profile.otu)
+}
+
+#Get vOTU ids
+votu.tmg.ids <- get_id(votu, "TotalMG")
+votu.vd.ids <- get_id(votu, "ViromeD")
+votu.vn.ids <- get_id(votu, "ViromeN")
+
+#Get MAG ids
+mag.tmg.ids <- get_id(mag, "TotalMG")
+mag.vd.ids <- get_id(mag, "ViromeD")
+mag.vn.ids <- get_id(mag, "ViromeN")
+
+#vOTU plot
+votu.euler.p <- plot(euler(list("+DNase\nVirome" = votu.vd.ids, "Untreated\nVirome" = votu.vn.ids, "Total\nMetaG" = votu.tmg.ids)),
+     fills = "white",
+     edges = list(col = profile.pal, lex = 5),
+     labels = list(fontfamily = "Helvetica",
+                   col = profile.pal,
+                   cex = 1), 
+     quantities = list(fontfamily = "Helvetica",
+                    col = c("black", "black", "black"),
+                   cex = 1))
+
+#MAG plot
+mag.euler.p <- plot(euler(list("+DNase\nVirome" = mag.vd.ids, "Untreated\nVirome" = mag.vn.ids, "Total\nMetaG" = mag.tmg.ids)),
+     fills = "white",
+     edges = list(col = profile.pal, lex = 5),
+     labels = list(fontfamily = "Helvetica",
+                   col = profile.pal,
+                   cex = 1), 
+     quantities = list(fontfamily = "Helvetica",
+                    col = c("black", "black", "black"),
+                   cex = 1))
+
+#840:300
+plot_grid(NA, votu.euler.p, NA, mag.euler.p, NA, nrow = 1, rel_widths = c(1,2,1,2,1), labels = c(NA, "a", NA, "b", NA), label_size = 20)
+```
+
+Filter maps and otu tables (vOTUs in viromes, MAGs in total metagenomes)
+```{r}
+v.map <- filter(map, Profile != "TotalMG")
+t.map <- filter(map, Profile == "TotalMG")
+
+v.votu <- votu[,colnames(votu) %in% v.map$SampleID]
+t.mag <- mag[,colnames(mag) %in% t.map$SampleID]
+
+v.votu.tidy <- tidy_otu(v.votu)
+t.mag.tidy <- tidy_otu(t.mag)
+
+#Get relative abundances and normalize
+v.votu.norm <- v.votu %>% rel_ab() %>% log_norm()
+t.mag.norm <- t.mag %>% rel_ab() %>% log_norm()
+
+#Calculate BC dissimilarities
+v.votu.dist <- beta_div_dist(v.votu.norm)
+t.mag.dist <- beta_div_dist(t.mag.norm)
+
+#Calculate Jaccard indexes
+v.votu.jac <- beta_div_dist(v.votu, method = "jaccard")
+t.mag.jac <- beta_div_dist(t.mag, method = "jaccard")
+```
+
+PCoA of all soil types
+```{r}
+#Get PCoA scores and eigenvalues
+v.votu.pcoa.axes <- pcoa_axes(v.votu.dist, v.map)
+v.votu.pcoa.eig <- pcoa_eigval(v.votu.dist, v.map)
+
+t.mag.pcoa.axes <- pcoa_axes(t.mag.dist, t.map)
+t.mag.pcoa.eig <- pcoa_eigval(t.mag.dist, t.map)
+
+#Plot
+v.votu.soil.pcoa.p <- v.votu.pcoa.axes %>% 
+  mutate(Set = "vOTU profiles") %>% 
+  ggplot(aes(Axis.1, Axis.2, fill = Soil2, shape = Profile2)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  xlab(paste("PCo1 (", v.votu.pcoa.eig$Eigval[1], "%)", sep = "")) +
+  ylab(paste("PCo2 (", v.votu.pcoa.eig$Eigval[2], "%)", sep = "")) +
+  scale_fill_manual(name = "Habitat", values = soil.pal) +
+  scale_shape_manual(name = "Profile", values = c(21,24)) +
+  guides(fill = "none") +
+  facet_wrap(~ Set) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"),
+        legend.position = c(0.3,0.3),
+        legend.title = element_blank()) 
+
+t.mag.soil.pcoa.p <- t.mag.pcoa.axes %>% 
+  mutate(Set = "MAG profiles") %>% 
+  ggplot(aes(Axis.1, Axis.2, fill = Soil2, shape = Profile2)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  xlab(paste("PCo1 (", t.mag.pcoa.eig$Eigval[1], "%)", sep = "")) +
+  ylab(paste("PCo2 (", t.mag.pcoa.eig$Eigval[2], "%)", sep = "")) +
+  scale_fill_manual(name = "Habitat", values = soil.pal) +
+  scale_shape_manual(name = "Profile", values = 22) +
+  guides(fill = "none") +
+  facet_wrap(~ Set) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"),
+        legend.position = c(0.3,0.7),
+        legend.title = element_blank())
+
+v.votu.soil.pcoa.p
+t.mag.soil.pcoa.p 
+```
+
+Generate upset plots showing intersections across soil types
+```{r}
+#Function to retrieve the ids of taxa detected in each soil type
+filter_soil_otu <- function(soil.type, profile.otu){
+  soil.map <- map %>% filter(Soil == soil.type)
+  soil.otu <- profile.otu[,colnames(profile.otu) %in% soil.map$SampleID]
+  soil.otu <- soil.otu[rowSums(soil.otu)>0,]
+}
+  
+#Retrieve vOTU ids
+v.votu.jpb.otu <- filter_soil_otu("JepsonBot", v.votu)
+v.votu.jpt.otu <- filter_soil_otu("JepsonTop", v.votu)
+v.votu.hop.otu <- filter_soil_otu("Hopland", v.votu)
+v.votu.mcl.otu <- filter_soil_otu("McLaughlin", v.votu)
+
+#Retrieve MAG ids
+t.mag.jpb.otu <- filter_soil_otu("JepsonBot", t.mag)
+t.mag.jpt.otu <- filter_soil_otu("JepsonTop", t.mag)
+t.mag.hop.otu <- filter_soil_otu("Hopland", t.mag)
+t.mag.mcl.otu <- filter_soil_otu("McLaughlin", t.mag)
+
+#Upset plot function
+plot_soil_upset <- function(hop.otu, mcl.otu, jpt.otu, jpb.otu){
+  upset(fromList(list(Hopland = row.names(hop.otu),
+                      McLaughlin = row.names(mcl.otu),
+                     "Jepson Mound" = row.names(jpt.otu),
+                     "Jepson Swale" = row.names(jpb.otu))),
+        queries = list(list(query = intersects, params = list("Hopland"), color = overlap.pal[1], active = T),
+                      list(query = intersects, params = list("McLaughlin"), color = overlap.pal[1], active = T),
+                      list(query = intersects, params = list("Jepson Mound"), color = overlap.pal[1], active = T),
+                      list(query = intersects, params = list("Jepson Swale"), color = overlap.pal[1], active = T),
+                      list(query = intersects, params = list("Jepson Swale", "Jepson Mound"), color = overlap.pal[2], active = T),
+                      list(query = intersects, params = list("Jepson Swale", "Hopland"), color = overlap.pal[2], active = T),
+                      list(query = intersects, params = list("Jepson Swale", "McLaughlin"), color = overlap.pal[2], active = T),
+                      list(query = intersects, params = list("Jepson Mound", "Hopland"), color = overlap.pal[2], active = T),
+                      list(query = intersects, params = list("Jepson Mound", "McLaughlin"), color = overlap.pal[2], active = T),
+                      list(query = intersects, params = list("McLaughlin", "Hopland"), color = overlap.pal[2], active = T),
+                      list(query = intersects, params = list("Jepson Swale", "Jepson Mound", "Hopland"), color = overlap.pal[3], active = T),
+                      list(query = intersects, params = list("Jepson Swale", "Jepson Mound", "McLaughlin"), color = overlap.pal[3], active = T),
+                      list(query = intersects, params = list("Hopland", "Jepson Swale", "McLaughlin"), color = overlap.pal[3], active = T),
+                      list(query = intersects, params = list("Hopland", "Jepson Mound", "McLaughlin"), color = overlap.pal[3], active = T),
+                      list(query = intersects, params = list("Hopland", "Jepson Mound", "McLaughlin", "Jepson Swale"), color = overlap.pal[4], active = T)),
+       number.angles = 0, nintersects = NA , empty.intersections = 4,
+       point.size = 3,
+       line.size = 1.5,
+       sets = c("Jepson Swale", "Jepson Mound", "McLaughlin", "Hopland"),
+       keep.order = T,
+       sets.bar.color = soil.pal[4:1],
+       set_size.show = F,
+       text.scale = c(1.5,1.25,1.5,1.25,1.25,1)) 
+}
+
+## the order for each text in the plot in text.scale tag
+## c(intersection size title, intersection size tick labels, set size title, set size tick labels, set names, numbers above bars)
+
+#Plot
+v.votu.upset.p <- plot_soil_upset(v.votu.hop.otu, v.votu.mcl.otu, v.votu.jpt.otu, v.votu.jpb.otu)
+t.mag.upset.p <- plot_soil_upset(t.mag.hop.otu, t.mag.mcl.otu, t.mag.jpt.otu, t.mag.jpb.otu)
+
+#620:330
+v.votu.upset.p
+t.mag.upset.p
+```
+
+Make a dummy plot with a legend displaying the # of taxa at each intersection level
+```{r}
+#Plot function
+upset.legend.plot <- function(profile.otu.tidy, units, plot.name) {
+  profile.otu.tidy %>% 
+    filter(Count > 0) %>% 
+    inner_join(map, by = "SampleID") %>% 
+    group_by(Soil, OTU_ID) %>% 
+    count() %>% 
+    group_by(OTU_ID) %>% 
+    count() %>% 
+    group_by(n) %>% 
+    count() %>% 
+    ungroup() %>% 
+    rename("Detection" = "n",
+           "Total" = "nn") %>% 
+    mutate(DetectionFull = ifelse(Detection > 1,
+                                  paste(Detection, "soil types"),
+                                  paste(Detection, "soil type"))) %>%
+    mutate(DetectionStats = paste(DetectionFull, "-", Total, units)) %>% 
+    ggplot(aes(Detection, Total, fill = DetectionStats)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(name = plot.name,
+                      values = overlap.pal,
+                      drop = FALSE) +
+    guides(fill = guide_legend(ncol = 1)) +
+    theme_void() +
+    theme(text = element_text(size = text.size),
+          legend.position = "right") 
+}
+
+#Plot
+v.votu.upset.legend <- upset.legend.plot(v.votu.tidy, "vOTUs", "vOTU detection in\nviromes")
+t.mag.upset.legend <- upset.legend.plot(t.mag.tidy, "MAGs", "MAG detection in\ntotal metagenomes")
+
+v.votu.upset.legend
+t.mag.upset.legend
+```
+
+Figure 1
+```{r}
+timeseries.p <- plot_grid(xpt.des.p, 
+                          seqs.p, 
+                          nrow = 1, rel_widths = c(1.5,3), labels = c("b", "c"), label_size = 15)
+
+top <- plot_grid(NA, timeseries.p, 
+                 nrow = 1, rel_widths = c(3,4.5),
+                 labels = c("a", "b", "c"), label_size = 15)
+
+bottom <- plot_grid(votu.rec.p, v.votu.soil.pcoa.p, get_legend(v.votu.upset.legend),
+                    mag.rec.p, t.mag.soil.pcoa.p, get_legend(t.mag.upset.legend),
+                    align = "vh", axis = "lrbt",
+                    nrow = 2, rel_widths = c(1.75,2,3),
+                    labels = c("d", "e","f"), label_size = 15)
+
+#825:740
+plot_grid(top, bottom, nrow = 2, rel_heights = c(2.5,3.75))
+
+bottom <- plot_grid(NA, NA, get_legend(v.votu.upset.legend),
+                    NA, NA, get_legend(t.mag.upset.legend))
+
+plot_grid(NA, bottom, nrow = 2, rel_heights = c(2.5,3.75))
+```
+
+Richness analysis
+```{r}
+#Aggregate vOTU and MAG tidy abundance dfs
+all.tidy <- rbind(mutate(v.votu.tidy, Set = "vOTUs"),
+                  mutate(t.mag.tidy, Set = "MAGs"))
+
+#Caclulate the aggregated abundance across replicates
+aggregated.richness <- all.tidy %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  group_by(Set, Soil2, Time, OTU_ID) %>% 
+  dplyr::count() %>% 
+  group_by(Set, Soil2, Time) %>% 
+  summarise(AggregatedRichness = n()) %>% 
+  ungroup() %>% 
+  mutate(Profile = "Aggregated") %>% 
+  mutate(Profile2 = case_when(Profile == "Aggregated" ~ "Aggregated",
+                              Profile == "ViromeD" ~ "+DNase Virome",
+                              Profile == "ViromeN" ~ "Untreated Virome",
+                              Profile == "TotalMG" ~ "Total MetaG")) %>%
+  mutate(Profile2 = fct_relevel(Profile2, "Aggregated", "+DNase Virome", "Untreated Virome", "Total MetaG")) %>% 
+  mutate(Set = fct_relevel(Set, "vOTUs")) 
+
+#Plot
+richness.p <- all.tidy %>% 
+  filter(Count > 0) %>% 
+  group_by(Set, SampleID) %>% 
+  dplyr::count() %>% 
+  ungroup() %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Status.Time != "Dry 240") %>% 
+  mutate(Profile2 = case_when(Profile == "Aggregated" ~ "Aggregated",
+                              Profile == "ViromeD" ~ "+DNase Virome",
+                              Profile == "ViromeN" ~ "Untreated Virome",
+                              Profile == "TotalMG" ~ "Total MetaG")) %>%
+  mutate(Profile2 = fct_relevel(Profile2, "Aggregated", "+DNase Virome", "Untreated Virome", "Total MetaG")) %>% 
+  mutate(Set = fct_relevel(Set, "vOTUs")) %>% 
+  ggplot(aes(Time, n)) +
+  geom_point(aes(color = Profile2), size = 1, stroke = 1, alpha = 0.5, shape = 16) +
+  geom_line(data = . %>% group_by(Set, Profile2, Soil, Soil2, Time) %>% summarise(MeanRichness = mean(n)), 
+            aes(Time, MeanRichness, color = Profile2), size = 0.75) +
+  geom_line(data = aggregated.richness, aes(Time, AggregatedRichness, color = Profile2), size = 0.75) +
+  xlab("Time point (hrs. after wetup)") +
+  ylab("Community richness") +
+  scale_color_manual(name = "Profile", values = c("gray25", profile.pal), breaks = c("Aggregated", "+DNase Virome", "Untreated Virome", "Total MetaG")) +
+  #scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3 ,accuracy = 1)) +
+  facet_grid(Set ~ Soil2, scales = "free") +
+  ylim(0, NA) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        #legend.title = element_blank(),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"))
+
+richness.p
+```
+
+DNA yield analysis
+```{r}
+#Calculate total yield based on amount of soil and reformat.
+yields.tidy <- yields %>% 
+  mutate(Yield = case_when(is.na(Yield) ~ 0,
+                           Profile == "TotalMG" ~ (Yield * 100)/.25,
+                           TRUE ~ (Yield * 100)/10)) %>% 
+  mutate(Soil2 = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                           Soil == "JepsonBot" ~ "Jepson Swale",
+                           TRUE ~ as.character(Soil))) %>% 
+  mutate(Soil2 = fct_relevel(Soil2, c("Hopland", "McLaughlin", "Jepson Mound", "Jepson Swale"))) %>% 
+  filter((Status == "Dry" & Time == 0) | Status == "Wet") %>% 
+  mutate(Profile2 = case_when(Profile == "TotalMG" ~ "Total MG",
+                              Profile == "ViromeD" ~ "+DNase Virome",
+                              Profile == "ViromeN" ~ "Untreated Virome")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "+DNase Virome", "Untreated Virome", "Total MG"))
+
+#Plot
+yields.p <- yields.tidy %>% 
+  filter(Profile == "ViromeD") %>% 
+  ggplot(aes(Time, Yield, color = Soil2)) +
+  geom_point(data = . %>% filter(Yield > 0), size = 1, shape = 16, stroke = 1, alpha = 0.5) +
+  geom_point(data = . %>% filter(Yield == 0), size = 1, shape = 1, stroke = 1, alpha = 0.5) +
+  geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)) %>% filter(MeanYield > 0), aes(y = MeanYield), size = 0.75, alpha = 1) +
+  geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)) %>% filter(Profile2 == "+DNase Virome" & str_detect(Soil2, "Jepson") & Time <= 24), aes(y = MeanYield), size = 0.75, alpha = 1, linetype = 2) +
+  xlab("Timepoint (hrs. after wetup)") +
+  ylab("DNA yield\n(ng/g of soil)") +
+  scale_color_manual(name = "Soil type", values = soil.pal) +
+ facet_grid(Profile2 ~ Soil2, scales = "free") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"))
+
+yields.p
+```
+
+Figure 2
+```{r}
+#740:515
+plot_grid(richness.p, yields.p, align = "hv", axis = "lrbt", nrow = 2, rel_heights = c(2,1.25), labels = c("a", "b"), label_size = 15)
+```
+
+PCoAs displaying temporal patterns for each soil type
+```{r}
+#Function to filter the distance matrix based on soil type
+soil_dist <- function(soil.type, profile.otu.norm, profile.dist){
+  soil.map <- map %>% filter(Soil == soil.type)
+  soil.dist <- profile.dist[rownames(profile.dist) %in% soil.map$SampleID, colnames(profile.dist) %in% soil.map$SampleID]
+}
+
+#Filter distance matrix for vOTUs
+v.votu.jpb.dist <- soil_dist("JepsonBot", v.votu.norm, v.votu.dist)
+v.votu.jpt.dist <- soil_dist("JepsonTop", v.votu.norm, v.votu.dist)
+v.votu.hop.dist <- soil_dist("Hopland", v.votu.norm, v.votu.dist)
+v.votu.mcl.dist <- soil_dist("McLaughlin", v.votu.norm, v.votu.dist)
+
+#Filter distance matrix for MAGs
+t.mag.jpb.dist <- soil_dist("JepsonBot", t.mag.norm, t.mag.dist)
+t.mag.jpt.dist <- soil_dist("JepsonTop", t.mag.norm, t.mag.dist)
+t.mag.hop.dist <- soil_dist("Hopland", t.mag.norm, t.mag.dist)
+t.mag.mcl.dist <- soil_dist("McLaughlin", t.mag.norm, t.mag.dist)
+
+#Get PCoA scores and eigenvalues for vOTUs
+v.votu.jpb.pcoa.axes <- pcoa_axes(v.votu.jpb.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.jpb.pcoa.eig <- pcoa_eigval(v.votu.jpb.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.jpt.pcoa.axes <- pcoa_axes(v.votu.jpt.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.jpt.pcoa.eig <- pcoa_eigval(v.votu.jpt.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.hop.pcoa.axes <- pcoa_axes(v.votu.hop.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.hop.pcoa.eig <- pcoa_eigval(v.votu.hop.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.mcl.pcoa.axes <- pcoa_axes(v.votu.mcl.dist, map) %>% mutate(Set = "vOTUs")
+v.votu.mcl.pcoa.eig <- pcoa_eigval(v.votu.mcl.dist, map) %>% mutate(Set = "vOTUs")
+
+#Get PCoA scores and eigenvalues for MAGs
+t.mag.jpb.pcoa.axes <- pcoa_axes(t.mag.jpb.dist, map) %>% mutate(Set = "MAGs")
+t.mag.jpb.pcoa.eig <- pcoa_eigval(t.mag.jpb.dist, map) %>% mutate(Set = "MAGs")
+t.mag.jpt.pcoa.axes <- pcoa_axes(t.mag.jpt.dist, map) %>% mutate(Set = "MAGs")
+t.mag.jpt.pcoa.eig <- pcoa_eigval(t.mag.jpt.dist, map) %>% mutate(Set = "MAGs")
+t.mag.hop.pcoa.axes <- pcoa_axes(t.mag.hop.dist, map) %>% mutate(Set = "MAGs")
+t.mag.hop.pcoa.eig <- pcoa_eigval(t.mag.hop.dist, map) %>% mutate(Set = "MAGs")
+t.mag.mcl.pcoa.axes <- pcoa_axes(t.mag.mcl.dist, map) %>% mutate(Set = "MAGs")
+t.mag.mcl.pcoa.eig <- pcoa_eigval(t.mag.mcl.dist, map) %>% mutate(Set = "MAGs")
+
+#Plot function
+pcoa_plotter <- function(soil.pcoa.axes, soil.pcoa.eig){
+  soil.pcoa.axes %>% 
+    ggplot(aes(Axis.1, Axis.2, fill = paste(Status, " ", TimeFctr, " (", Time, " hrs.)", sep = ""), shape = Profile2)) +
+    geom_point(size = 2.5, alpha = 0.8) +
+    scale_fill_manual(name = "Time point\n(hrs. post-wetup)",
+                      values = time.pal,
+                      breaks = c("Dry T0 (0 hrs.)", "Dry T6 (240 hrs.)", "Wet T1 (24 hrs.)", "Wet T2 (48 hrs.)", "Wet T3 (72 hrs.)", "Wet T4 (120 hrs.)", "Wet T5 (168 hrs.)", "Wet T6 (240 hrs.)"),
+                      labels = c("Dry T0 (0 hrs.)", "Dry T6 (240 hrs.)", "Wet T1 (24 hrs.)", "Wet T2 (48 hrs.)", "Wet T3 (72 hrs.)", "Wet T4 (120 hrs.)", "Wet T5 (168 hrs.)", "Wet T6 (240 hrs.)"),
+                      drop = FALSE) +
+    scale_shape_manual(name = "Profile",
+                       values = c(21,24,22),
+                       labels = c("+DNase Virome", "Untreated Virome", "Total MetaG"),
+                       drop = FALSE) +
+    guides(fill = guide_legend(override.aes = list(shape = 21)),
+           shape = guide_legend(override.aes = list(fill = "black"))) +
+    xlab(paste("PCo1 (", soil.pcoa.eig$Eigval[1], "%)", sep = "")) +
+    ylab(paste("PCo2 (", soil.pcoa.eig$Eigval[2], "%)", sep = "")) +
+    scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+    facet_wrap(~ Set + Soil2) +
+    theme_bw() + 
+    theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"))
+}
+
+#Plot
+v.votu.jpb.p <- pcoa_plotter(v.votu.jpb.pcoa.axes, v.votu.jpb.pcoa.eig)
+v.votu.jpt.p <- pcoa_plotter(v.votu.jpt.pcoa.axes, v.votu.jpt.pcoa.eig)
+v.votu.hop.p <- pcoa_plotter(v.votu.hop.pcoa.axes, v.votu.hop.pcoa.eig)
+v.votu.mcl.p <- pcoa_plotter(v.votu.mcl.pcoa.axes, v.votu.mcl.pcoa.eig)
+
+t.mag.jpb.p <- pcoa_plotter(t.mag.jpb.pcoa.axes, t.mag.jpb.pcoa.eig)
+t.mag.jpt.p <- pcoa_plotter(t.mag.jpt.pcoa.axes, t.mag.jpt.pcoa.eig)
+t.mag.hop.p <- pcoa_plotter(t.mag.hop.pcoa.axes, t.mag.hop.pcoa.eig)
+t.mag.mcl.p <- pcoa_plotter(t.mag.mcl.pcoa.axes, t.mag.mcl.pcoa.eig)
+
+plot_grid(v.votu.hop.p + theme(legend.position = "none"),
+          v.votu.mcl.p + theme(legend.position = "none"),
+          v.votu.jpt.p + theme(legend.position = "none"),
+          v.votu.jpb.p + theme(legend.position = "none"),
+          t.mag.hop.p + theme(legend.position = "none"),
+          t.mag.mcl.p + theme(legend.position = "none"),
+          t.mag.jpt.p + theme(legend.position = "none"),
+          t.mag.jpb.p + theme(legend.position = "none"),
+          nrow = 2)
+```
+
+
+Temporal distance-decay analysis. 
+```{r}
+#Filter out the lower triangle from the matrix so duplicated pairs are not included in stats calculations
+#Generate long format data frame with BC values and filter out pairs
+v.votu.dist.filt <- v.votu.dist
+v.votu.dist.filt[upper.tri(v.votu.dist.filt)] <- NA
+v.votu.dist.tidy <- v.votu.dist.filt %>% 
+  as.data.frame() %>% 
+  mutate(SampleID.x = row.names(.)) %>% 
+  gather(key = "SampleID.y", value = "Dissimilarity", -SampleID.x) %>% 
+  inner_join(map, by = c("SampleID.x" = "SampleID")) %>% 
+  inner_join(map, by = c("SampleID.y" = "SampleID")) 
+
+t.mag.dist.filt <- t.mag.dist
+t.mag.dist.filt[upper.tri(t.mag.dist.filt)] <- NA
+t.mag.dist.tidy <- t.mag.dist.filt %>% 
+  as.data.frame() %>% 
+  mutate(SampleID.x = row.names(.)) %>% 
+  gather(key = "SampleID.y", value = "Dissimilarity", -SampleID.x) %>% 
+  inner_join(map, by = c("SampleID.x" = "SampleID")) %>% 
+  inner_join(map, by = c("SampleID.y" = "SampleID")) 
+
+#Filter BC data frame
+all.dist.tidy <- rbind(mutate(v.votu.dist.tidy, Set = "vOTU"),
+                       mutate(t.mag.dist.tidy, Set = "MAG")) %>% 
+  filter(!is.na(Dissimilarity)) %>% 
+  filter(SampleID.x != SampleID.y) %>% 
+  filter(Soil.x == Soil.y) %>% 
+  filter(Profile.x == Profile.y) %>% 
+  filter(Time.x > 0 & Time.y > 0) %>% 
+  filter(Status.x == "Wet" & Status.y == "Wet") %>% 
+  filter(!(Soil.x == "Hopland" & Profile.x == "ViromeN")) %>% 
+  filter(!(Soil.x == "McLaughlin" & Profile.x == "ViromeN")) %>% 
+  mutate(TemporalDifference = abs(Time.x - Time.y)) %>% 
+  mutate(Similarity = 1 - Dissimilarity) %>% 
+  mutate(Set2 = paste(Set, "s in ", Profile2.x, sep = ""))
+
+#Retrive min and max BC similarities across the dataset
+dist.min <- min(all.dist.tidy$Similarity)
+dist.max <- max(all.dist.tidy$Similarity)
+
+#Function to get stats
+cor_stats_calc <- function(soil.type, set2) {
+  dist.cor <- filter(all.dist.tidy, Soil2.x == soil.type & Set2 == set2)
+  cor <- cor.test(dist.cor$TemporalDifference, dist.cor$Similarity, method = "pearson", alternative = "two.sided") %>% tidy()
+  lm <- lm(Similarity ~ TemporalDifference, data = dist.cor) %>% tidy() %>% filter(term == "TemporalDifference")
+  dist.stats <- data.frame(r = cor$estimate,
+                             slope = lm$estimate,
+                             p.value = cor$p.value,
+                             Soil2.x = soil.type,
+                             Set2 = set2)
+  dist.stats
+}
+
+#Run stats analysis
+cor.stats <- rbind(cor_stats_calc("Jepson Mound", "vOTUs in +DNase Virome"),
+                   cor_stats_calc("Jepson Mound", "vOTUs in Untreated Virome"),
+                   cor_stats_calc("Jepson Swale", "vOTUs in +DNase Virome"),
+                   cor_stats_calc("Jepson Swale", "vOTUs in Untreated Virome"),
+                   cor_stats_calc("Hopland", "vOTUs in +DNase Virome"),
+                   cor_stats_calc("McLaughlin", "vOTUs in +DNase Virome"),
+                   cor_stats_calc("Jepson Mound", "MAGs in Total MetaG"),
+                   cor_stats_calc("Jepson Swale", "MAGs in Total MetaG"),
+                   cor_stats_calc("Hopland", "MAGs in Total MetaG"),
+                   cor_stats_calc("McLaughlin", "MAGs in Total MetaG"))
+
+cor.stats
+
+#Generate supplementary table
+dd.supp.table <- cor.stats %>% 
+  rename("Soil" = "Soil2.x",
+         "Set" = "Set2") %>% 
+  select(Set, Soil, everything()) %>% 
+  mutate(r = signif(r, 3),
+         slope = signif(slope, 3),
+         p.value = signif(p.value, 3))
+
+write.table(dd.supp.table, "../Tables/supp_table_votu_mag_dist_decay.tsv", sep = "\t", quote = F, row.names = F)
+
+```
+
+Plot distance-decay analysis
+```{r}
+#Function to plot the distance-decay relationships
+dist_plotter <- function(soil.type){
+  all.dist.tidy %>% 
+    filter(Soil2.x == soil.type) %>% 
+    ggplot(aes(TemporalDifference, Similarity, color = Set2)) +
+    geom_point(alpha = 0.5, size = 1, aes(shape = Set2)) +
+    geom_smooth(method = "lm", se = F) +
+    scale_color_manual(name = "Set", values = profile.pal[c(3,1,2)], 
+                       breaks = c("MAGs in Total MetaG", "vOTUs in +DNase Virome", "vOTUs in Untreated Virome")) +
+    scale_shape_manual(name = "Set", values = c(15,16,17), 
+                       breaks = c("MAGs in Total MetaG", "vOTUs in +DNase Virome", "vOTUs in Untreated Virome")) +
+    xlab("Distance between\ntime points (hrs.)") + 
+    ylab("Bray-Curtis similarity") +
+    ylim(dist.min, dist.max) +
+    facet_grid(. ~ Soil2.x) +
+    theme_bw() +
+    theme(text = element_text(size = text.size),
+          strip.background =element_rect(fill="gray25"),
+          strip.text = element_text(colour = "white"))
+    
+}
+  
+#Plot  
+jpb.dist.p <- dist_plotter("Jepson Swale")
+jpt.dist.p <- dist_plotter("Jepson Mound")
+hop.dist.p <- dist_plotter("Hopland")
+mcl.dist.p <- dist_plotter("McLaughlin")
+
+plot_grid(hop.dist.p + theme(legend.position = "none"),
+          mcl.dist.p + theme(legend.position = "none"),
+          jpt.dist.p + theme(legend.position = "none"),
+          jpb.dist.p + theme(legend.position = "none"),
+          get_legend(dist.decay.p + theme(legend.position = "right")),
+          nrow = 1)
+```
+
+Figure 3
+```{r}
+#955:625
+plot_grid(v.votu.hop.p + theme(legend.position = "none"),
+          v.votu.mcl.p + theme(legend.position = "none"),
+          v.votu.jpt.p + theme(legend.position = "none"),
+          v.votu.jpb.p + theme(legend.position = "none"),
+          plot_grid(NA, get_legend(v.votu.jpb.p),ncol = 1, rel_heights = c(5,1)),
+          t.mag.hop.p + theme(legend.position = "none"),
+          t.mag.mcl.p + theme(legend.position = "none"),
+          t.mag.jpt.p + theme(legend.position = "none"),
+          t.mag.jpb.p + theme(legend.position = "none"),
+          NA,
+          hop.dist.p + theme(legend.position = "none"),
+          mcl.dist.p + theme(legend.position = "none"),
+          jpt.dist.p + theme(legend.position = "none"),
+          jpb.dist.p + theme(legend.position = "none"),
+          get_legend(jpt.dist.p + theme(legend.position = "right")),
+          nrow = 3,
+          align = "hv", axis = "lr",
+          labels = c("a", NA, NA, NA, NA,
+                     "b", NA, NA, NA, NA,
+                     "c", NA, NA, NA, NA), label_size = 15)
+```
+
+Assess the abundance of vOTUs detected in dry soils for Hopland and McLaughlin
+```{r}
+#Identify vOTUs present in dry soils at T0
+dry.detection <- v.votu.tidy %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(TimeFctr == "T0") %>% 
+  filter(Count > 0) %>% 
+  group_by(Soil2, OTU_ID) %>% 
+  dplyr::count() %>% 
+  ungroup() %>% 
+  select(-n) %>% 
+  mutate(T0Detected = TRUE)
+
+#Plot
+#585:360
+v.votu.tidy %>% 
+  inner_join(map, by = "SampleID") %>% 
+  left_join(dry.detection, by = c("OTU_ID", "Soil2")) %>% 
+  mutate(T0Detected2 = !is.na(T0Detected)) %>% 
+  group_by(Soil2, TimeFctr, Time, Profile2, Status, T0Detected2) %>% 
+  summarise(Total = sum(Count)) %>% 
+  group_by(Soil2, TimeFctr, Time, Profile2, Status) %>% 
+  mutate(RelativeAbundance = (Total/sum(Total))) %>% 
+  ungroup() %>% 
+  filter(!(TimeFctr == "T6" & Status == "Dry")) %>% 
+  filter(Soil2 %in% c("Hopland", "McLaughlin")) %>% 
+  filter(Profile2 == "+DNase Virome") %>% 
+  ggplot(aes(paste(TimeFctr, " (", Time, " hrs.)", sep = ""), RelativeAbundance, fill = T0Detected2)) +
+  geom_bar(stat = "identity") +
+  facet_grid(Profile2 ~ Soil2) +
+  scale_fill_manual(name = "Detected in dry T0", values = c("gray75", "gray25")) +
+  xlab("Time point (hrs. post-wetup)") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"))
+  
+```
+
+Occupancy analysis
+```{r}
+time.occ.p <- all.tidy %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Status == "Wet" | TimeFctr == "T0") %>% 
+  filter(Status == "Wet") %>% 
+  group_by(Set, Profile2, Soil2, Time, TimeFctr, OTU_ID) %>% 
+  summarise(Occupancy = sum(Count > 0)) %>% 
+  filter(Occupancy > 0) %>% 
+  group_by(Set, Profile2, Soil2, OTU_ID) %>% 
+  filter(!(Profile2 == "Untreated Virome" & Soil2 %in% c("Hopland", "McLaughlin"))) %>% 
+  summarise(TimeOccupancy = n()) %>% 
+  group_by(Set, Profile2, Soil2, TimeOccupancy) %>% 
+  summarise(TotalTaxa = n()) %>% 
+  group_by(Set, Profile2, Soil2) %>% 
+  mutate(PercentTaxa = TotalTaxa/sum(TotalTaxa) * 100) %>% 
+  mutate(PercentTaxaRounded = round(PercentTaxa, 1)) %>% 
+  mutate(Soil2 = fct_relevel(Soil2, "Jepson Swale", "Jepson Mound", "McLaughlin", "Hopland")) %>% 
+  ggplot(aes(TimeOccupancy, PercentTaxa)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = PercentTaxa + 7.5, label = PercentTaxaRounded), size = 1.5) +
+  lemon::facet_rep_grid(Soil2 ~ Set + Profile2, repeat.tick.labels = "all") +
+  xlab("Occupancy (# of post-wetup time points)") +
+  ylab("Percentage of taxa") +
+  scale_x_continuous(breaks = c(1,2,3,4,5,6)) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+          strip.text = element_text(colour = "white"))
+
+time.occ.p
+```
+
+Jaccard similarity analyses
+```{r}
+#Reformat Jaccard matrix for vOTUs
+v.jac.heatmap.df <-  v.votu.jac %>% 
+  as.data.frame() %>% 
+  mutate(SampleID.x = row.names(.)) %>% 
+  gather(key = "SampleID.y", value = "Dissimilarity", -SampleID.x) %>% 
+  inner_join(map, by = c("SampleID.x" = "SampleID")) %>% 
+  inner_join(map, by = c("SampleID.y" = "SampleID"))
+
+#Reformat Jaccard matrix for MAGs
+t.jac.heatmap.df <-  t.mag.jac %>% 
+  as.data.frame() %>% 
+  mutate(SampleID.x = row.names(.)) %>% 
+  gather(key = "SampleID.y", value = "Dissimilarity", -SampleID.x) %>% 
+  inner_join(map, by = c("SampleID.x" = "SampleID")) %>% 
+  inner_join(map, by = c("SampleID.y" = "SampleID"))
+
+#Aggregate and filter
+jac.heatmap.df <- rbind(mutate(v.jac.heatmap.df, Set = "vOTU"),
+                        mutate(t.jac.heatmap.df, Set = "MAG")) %>% 
+  filter(!is.na(Dissimilarity)) %>% 
+  filter(SampleID.x != SampleID.y) %>% 
+  filter(Soil.x == Soil.y) %>% 
+  filter(Profile.x == Profile.y) %>% 
+  filter(Time.x > 0 & Time.y > 0) %>% 
+  filter(Status.x == "Wet" & Status.y == "Wet") %>% 
+  filter(!(Soil.x == "Hopland" & Profile.x == "ViromeN")) %>% 
+  filter(!(Soil.x == "McLaughlin" & Profile.x == "ViromeN")) %>% 
+  mutate(Similarity = 1 - Dissimilarity) %>% 
+  mutate(Set2 = paste(Set, "s in ", Profile2.x, sep = "")) 
+
+#Plot
+jac.heatmap.p <- jac.heatmap.df %>% 
+  mutate(Soil2.x = fct_relevel(Soil2.x, "Jepson Swale", "Jepson Mound", "McLaughlin", "Hopland")) %>% 
+  ggplot(aes(TimeFctr.x, TimeFctr.y, fill = Similarity)) +
+  geom_tile() +
+  scale_fill_viridis_c(name = "Jaccard\nsimilarity", direction = -1, option = "A") +
+  xlab("Post-wetup time point") +
+  ylab("Post-wetup time point") +
+  lemon::facet_rep_grid(Soil2.x ~ Set + Profile2.x, repeat.tick.labels = "all") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        strip.background =element_rect(fill="gray25"),
+        strip.text = element_text(colour = "white"),
+        legend.position = "right")
+
+jac.heatmap.p
+```
+
+Plot occupancy and Jaccard results
+```{r}
+#510:745
+plot_grid(time.occ.p, jac.heatmap.p + theme(legend.position = "none"), get_legend(jac.heatmap.p),
+          align = "hv", axis = "lrtb", ncol = 1, rel_heights = c(3,3,0.5),
+          labels = c("a", "b", NA), label_size = 15)
+
+#965:625
+plot_grid(time.occ.p, jac.heatmap.p + theme(legend.position = "none"), get_legend(jac.heatmap.p),
+          align = "hv", axis = "lrtb", nrow = 1, rel_widths = c(3,3,0.5),
+          labels = c("a", "b", NA), label_size = 15)
+```
+

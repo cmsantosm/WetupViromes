@@ -1,0 +1,67 @@
+Load libraries
+```{r}
+library(RColorBrewer)
+library(tidyverse)
+```
+
+Load data
+```{r}
+profile.pal <- brewer.pal(11, "PuOr")[c(10,8,3)]
+metadata <- readRDS("../Data/assembly_stats.RDS")
+map <- readRDS("../Data/wetup_map.RDS")
+```
+
+Inspect sequencing depths of viromes
+```{r}
+metadata %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile != "TotalMG") %>% 
+  arrange(depth_qual_reads) %>% 
+  filter
+```
+
+Inspect sequencing depths of total metagenomes
+```{r}
+metadata %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "TotalMG") %>% 
+  arrange(depth_qual_reads)
+```
+
+For viromes, there were two samples that were quite lower than the other ones so we are using the third lowest as a threhosld.
+```{r}
+thresholds <- data.frame(Set = c("Viromes", "Total MetaGs"),
+                         Depth = c(43529470,98130102))
+
+#Plot
+metadata %>% 
+  inner_join(map, by = "SampleID") %>% 
+  mutate(Set = ifelse(Profile == "TotalMG", "Total MetaGs", "Viromes")) %>% 
+  ggplot() +
+  geom_point(aes(Time, depth_qual_reads, color = Profile2)) +
+  geom_hline(data = thresholds, aes(yintercept = Depth), linetype = 2) +
+  scale_color_manual(name = "Profile", values = profile.pal) +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6 ,accuracy = 1)) +
+  facet_grid(Set  ~ Soil2) +
+  theme_bw() +
+  xlab("Time point (hrs. after wetup)") +
+  ylab("Sequencing depth\n(# quality-filtered reads)") +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+```
+
+Save table with sequencing depth info and the rarefaction factor used to subsample alignments
+```{r}
+rfactor <- metadata %>% 
+  inner_join(map, by = "SampleID") %>% 
+  mutate(RarefactionFactor = ifelse(Profile == "TotalMG",
+                                    98130102/depth_qual_reads,
+                                    43529470/depth_qual_reads)) %>% 
+  mutate(RarefactionFactor = ifelse(RarefactionFactor > 1, 1, RarefactionFactor)) %>% 
+  select(SampleID, Profile:TimeFctr, depth_raw_reads:depth_qual_reads, RarefactionFactor) %>% 
+  select(-CollectionDate)
+
+write.table(rfactor, "../Tables/supp_votu_rarefaction_factor.tsv", quote = F, sep = "\t", row.names = F)
+```
+

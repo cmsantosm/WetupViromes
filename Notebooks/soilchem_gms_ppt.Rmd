@@ -1,0 +1,213 @@
+Load libraries
+```{r}
+library(ggdendro)
+library(tidyverse)
+library(cowplot)
+```
+
+Define palettes and alternate names for edaphic variables
+```{r}
+site.pal <- c(rcartocolor::carto_pal(12, "Bold")[c(3,5)], "black")
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+
+alt.names <- tribble(
+  ~Variable, ~Variable2,
+  "pH_Soil", "Soil pH",
+  "pH_Buffer", "Buffer pH",
+  "Soluble_Salts", "Soluble salts (mmho/cm)",
+  "Lime", "Excess lime",
+  "Texture", "Texture No",
+  "OM", "Organic Matter (LOI %)",
+  "Nitrate", "Nitrate (ppm)",
+  "lbs", "lbs",
+  "Phosphorus", "Phosphorus (ppm)",
+  "Potassium", "Potassium (ppm)",
+  "Sulfate", "Sulfate (ppm)",
+  "Zinc", "Zinc (ppm)",
+  "Iron", "Iron (ppm)",
+  "Manganese", "Manganese (ppm)",
+  "Copper", "Copper (ppm)",
+  "Calcium", "Calcium (ppm)",
+  "Magnesium", "Magnesium (ppm)",
+  "Sodium", "Sodium (ppm)",
+  "Boron", "Boron (ppm)",
+  "CEC", "CEC (meq/100g)",
+  "H_Sat", "%H Sat.",
+  "K_Sat", "%K Sat.",
+  "Ca_Sat", "%Ca Sat.",
+  "Mg_Sat", "%Mg Sat.",
+  "Na_Sat", "%Na Sat."
+)
+```
+
+Load data and reformat
+```{r}
+ppt <- readRDS("../Data/weather.RDS")
+gsm <- readRDS("../Data/moisture.RDS") %>% 
+  mutate(Soil2 = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                           Soil == "JepsonBottom" ~ "Jepson Swale",
+                           TRUE ~ as.character(Soil))) %>% 
+  mutate(Soil2 = fct_relevel(Soil2, c("Hopland", "McLaughlin", "Jepson Mound", "Jepson Swale"))) %>% 
+  mutate(Treatment2 = ifelse(Treatment == "Control", "No wetup", "Wetup")) %>% 
+  mutate(Treatment2 = fct_relevel(Treatment2, "Wetup"))
+
+ward <- readRDS("../Data/ward.RDS")
+ward.tidy <- ward %>% 
+  mutate(Soil = row.names(.)) %>% 
+  gather(key = "Variable", value = "Value", -Soil)
+```
+
+Perform hierarchical clustering on the z-transformed values 
+```{r}
+# Generate a matrix of z-transformed values
+nut.mtx <- ward.tidy %>% 
+  group_by(Variable) %>% 
+  mutate(zValue = (Value - mean(Value))/sd(Value)) %>% 
+  select(Soil, Variable, zValue) %>% 
+  spread(key = Variable, value = zValue) %>% 
+  as.data.frame()
+row.names(nut.mtx) <- nut.mtx$Soil
+nut.mtx <- nut.mtx[,-1]
+nut.mtx <- as.matrix(nut.mtx)
+# Calculate distance
+sample.dist <- dist(nut.mtx)
+nut.dist <- dist(t(nut.mtx))
+# Perform hierarchical clustering
+sample.dd <- as.dendrogram(hclust(as.dist(sample.dist), method = "complete"))
+sample.ddata_x <- dendro_data(sample.dd)
+sample.labs <- label(sample.ddata_x) %>%
+  rename("Soil" = "label") %>%
+  rename("SoilOrder" = "x") 
+nut.dd <- as.dendrogram(hclust(as.dist(nut.dist), method = "complete"))
+nut.ddata_x <- dendro_data(nut.dd)
+nut.labs <- label(nut.ddata_x) %>% 
+  rename("Variable" = "label") %>% 
+  rename("VariableOrder" = "x")
+```
+
+Generate a master file for plotting
+```{r}
+nutrients.master <- ward.tidy %>% 
+  group_by(Variable) %>% 
+  mutate(zValue = (Value - mean(Value))/sd(Value)) %>% 
+  inner_join(sample.labs, by = "Soil") %>% 
+  inner_join(nut.labs, by = "Variable") %>% 
+  inner_join(alt.names, by = "Variable") %>% 
+  ungroup() %>% 
+  mutate(Soil2 = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                           Soil == "JepsonBot" ~ "Jepson Swale",
+                           TRUE ~ as.character(Soil))) %>% 
+  mutate(Soil2 = fct_relevel(Soil2, c("Hopland", "McLaughlin", "Jepson Mound", "Jepson Swale")))
+```
+
+Get the individual plots
+```{r}
+### Dendogram
+v.p2 <- ggplot(segment(sample.ddata_x)) +
+  geom_segment(aes(x=x, y=y, xend=xend, yend=yend))
+sample.labs.2 <- label(sample.ddata_x) %>%
+  rename("Soil" = "label") %>% 
+   mutate(Soil2 = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                           Soil == "JepsonBot" ~ "Jepson Swale",
+                           TRUE ~ as.character(Soil))) %>% 
+  mutate(Soil2 = fct_relevel(Soil2, c("Hopland", "McLaughlin", "Jepson Mound", "Jepson Swale")))
+v.dd <- v.p2 + 
+  geom_point(data=sample.labs.2,
+             aes(x=x, y=0.5, fill = Soil2), size = 3, stroke = 1, shape = 21) +
+  coord_flip(expand = T) +
+  scale_fill_manual(values = soil.pal) + 
+  theme_classic() +
+  theme(text = element_text(size = 15),
+        axis.text = element_blank(),
+        axis.title = element_blank(),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
+        legend.position = "right") +
+  scale_y_reverse() +
+  xlim(-0.5,4.5)
+v.dd
+
+## Heatmap
+nut.p <- nutrients.master %>% 
+  #mutate(zValue = ifelse(abs(zValue) > 2, 2*sign(zValue), zValue)) %>% 
+  ggplot(aes(reorder(Variable2, VariableOrder), reorder(Soil2, SoilOrder))) +
+  geom_tile(aes(fill = zValue),size = 0.5, color = "white") +
+  scale_fill_viridis_c(name = "Concentration\n(z-score)", option = "viridis",
+                        guide = guide_colorbar(title.hjust = 1,
+                                               label.theme = element_text(size = 8, angle = 45, hjust = 1))) +
+  theme_minimal() +
+  theme(text = element_text(size = 12),
+        #axis.text.y = element_text(hjust = 1),
+        #axis.text.y = element_blank(),
+        axis.text.y = element_text(hjust = 0),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "top") 
+nut.p  
+```
+
+```{r}
+a <- cowplot::plot_grid(v.dd + theme(legend.position = "none"), 
+                                   #labs.p, 
+                                   nut.p + theme(legend.position = "top"), 
+                                   nrow = 1, align = "h", axis = "tb", 
+                                   rel_widths = c(3,10))
+a
+```
+
+Plot precipitation patterns
+```{r}
+#Data frame with collection dates for each site
+collection.date <- data.frame(Soil = c("McLaughlin", "Hopland", "Jepson"),
+                              Date = lubridate::ymd(c("2020-10-29", "2020-10-30", "2020-11-05"))) %>% 
+   mutate(Soil = fct_relevel(Soil, "Hopland", "McLaughlin"))
+
+#Plot
+b <- ppt %>% 
+  ungroup() %>% 
+  filter(!(Soil == "McLaughlin" & Date == lubridate::ymd("2020-09-14"))) %>% 
+  filter(Date >= lubridate::ymd("2019-07-01") & Date <= lubridate::ymd("2021-07-01")) %>% 
+  mutate(Soil = fct_relevel(Soil, "Hopland", "McLaughlin")) %>% 
+  ggplot() +
+  geom_line(aes(Date, TotalPrecipitation, color = Soil), size = 1) +
+  geom_line(aes(Date, TotalPrecipitation, color = Soil), size = 1) +
+  scale_color_manual(values = site.pal) +
+ geom_vline(data = collection.date, aes(xintercept = Date), linetype = 2) +
+  #geom_point(data = collection.date, aes(x = Date, y = 30), shape = 25) +
+  facet_grid(Soil ~ .) +
+  ylab("Daily rainfall\n(mm)") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        strip.text = element_text(color = "white"),
+        strip.background = element_rect(fill = "gray25"),
+        legend.position = "none")
+  
+b
+```
+
+Plot gravimetric soil moisture trends
+```{r}
+gsm %>% filter(Soil == "Hopland") %>% filter(Treatment == "Control")
+
+c <- gsm %>% 
+  mutate(GSM = GSM*100) %>% 
+  ggplot(aes(Time, GSM, color = Treatment2)) +
+  geom_point(alpha = 0.7) +
+  geom_line(data = . %>% group_by(Soil2, Treatment, Treatment2, Time) %>% summarise(MeanGSM = mean(GSM)), aes(y = MeanGSM)) +
+  facet_grid(. ~ Soil2) +
+  ylab("Gravimetric soil\nmoisture (%)") +
+  xlab("Time point (hrs. after wetup)") +
+  scale_color_manual(name = "Treatment", values = brewer.pal(11, "BrBG")[c(9,3)]) +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+c
+```
+570:850
+```{r}
+plot_grid(a,b,c, nrow = 3, labels = c("a", "b", "c"), label_size = 15, rel_heights = c(1.1,1,1))
+```
+
