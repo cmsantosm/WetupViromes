@@ -156,133 +156,93 @@ both.zs.p <- rbind(select(votu.zs.tidy, OTU.Soil, OTU_ID, Cluster, ClusterAlt, S
 both.zs.p
 ```
 
+Generate donut plots highlighting the contribution of actinos and proteos to each temporal group
 ```{r}
-# both.ntwk.p <-  nodes.master.2 %>%
-#   ungroup() %>% 
-#   mutate(Facet = fct_relevel(Facet, "All", "All2", after = Inf)) %>% 
-#   mutate(Facet2 = case_when(Facet == "vOTU trend group 1" ~ "Dry-dominant",
-#                              Facet == "vOTU trend group 2" ~ "Early responders",
-#                              Facet == "vOTU trend group 3" ~ "Late responders",
-#                              Facet == "All" ~ "All",
-#                              Facet == "All2" ~ "All2")) %>% 
-#   mutate(Facet2 = fct_relevel(Facet2, "All", "All2", after = Inf)) %>% 
-#   ggplot() +
-#   #geom_line(data = filter(edges.master, Facet == "All"), aes(x,y, group = Pair), color = "gray5", alpha = 0.1, size = 0.1) +
-#   ggforce::geom_circle(data = circle, aes(x0 = 0.5, y0 = 0.5, r = 0.55), color = "gray25", linetype = 2) +
-#   geom_point(data = . %>% filter(Facet == "All" & HostPhylum2 == "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "All2" & HostPhylum2 != "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 1" & Cluster == "vOTU trend group 1"), alpha = 0.3, size = 0.5, aes(x,y), color = carto_pal(7, "OrYel")[2]) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 2" & Cluster == "vOTU trend group 2"), alpha = 0.3, size = 0.5, aes(x,y), color = carto_pal(7, "OrYel")[4]) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 3" & Cluster == "vOTU trend group 3"), alpha = 0.3, size = 0.5,  aes(x,y), color = carto_pal(7, "OrYel")[6]) +
-#   scale_color_manual(name = "Predicted\nhost phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
-#                      breaks = c("Actinobacteriota", "Proteobacteria", "Other", "Unclassified")) +
-#   facet_wrap(~ Facet2, nrow = 1) +
-#   theme_minimal() +
-#   theme(text = element_text(size = text.size),
-#         axis.text = element_blank(),
-#         axis.title = element_blank(),
-#         axis.ticks = element_blank(),
-#         panel.grid = element_blank(),
-#         strip.text = element_text(color = "white"),
-#         strip.background = element_rect(fill = "gray25"),
-#         legend.position = "none")
-# 
-# both.ntwk.p
-# 
-# both.ntwk.p <-  nodes.master.2 %>%
-#   ungroup() %>% 
-#   mutate(Facet = fct_relevel(Facet, "All", "All2", after = Inf)) %>% 
-#   mutate(Facet2 = case_when(Facet == "vOTU trend group 1" ~ "Dry-dominant",
-#                              Facet == "vOTU trend group 2" ~ "Early responders",
-#                              Facet == "vOTU trend group 3" ~ "Late responders",
-#                              Facet == "All" ~ "All",
-#                              Facet == "All2" ~ "All2")) %>% 
-#   mutate(Facet2 = fct_relevel(Facet2, "All", "All2", after = Inf)) %>% 
-#   ggplot() +
-#   #geom_line(data = filter(edges.master, Facet == "All"), aes(x,y, group = Pair), color = "gray5", alpha = 0.1, size = 0.1) +
-#   ggforce::geom_circle(data = circle, aes(x0 = 0.5, y0 = 0.5, r = 0.55), color = "gray25", linetype = 2) +
-#   geom_point(data = . %>% filter(Facet == "All" & HostPhylum2 == "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "All2" & HostPhylum2 != "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 1" & Cluster == "vOTU trend group 1" & HostPhylum2 == "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 2" & Cluster == "vOTU trend group 2" & HostPhylum2 == "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 3" & Cluster == "vOTU trend group 3" & HostPhylum2 == "Unclassified"), alpha = 0.7, size = 0.5,  aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 1" & Cluster == "vOTU trend group 1" & HostPhylum2 != "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 2" & Cluster == "vOTU trend group 2" & HostPhylum2 != "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
-#   geom_point(data = . %>% filter(Facet == "vOTU trend group 3" & Cluster == "vOTU trend group 3" & HostPhylum2 != "Unclassified"), alpha = 0.7, size = 0.5,  aes(x,y, color = HostPhylum2)) +
-#   scale_color_manual(name = "(Host) phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
-#                      breaks = c("Actinobacteriota", "Proteobacteria", "Other", "Unclassified")) +
-#   facet_wrap(~ Facet2, nrow = 1) +
-#   theme_minimal() +
-#   theme(text = element_text(size = text.size),
-#         axis.text = element_blank(),
-#         axis.title = element_blank(),
-#         axis.ticks = element_blank(),
-#         panel.grid = element_blank(),
-#         strip.text = element_text(color = "white"),
-#         strip.background = element_rect(fill = "gray25"),
-#         legend.position = "none")
-# 
-# 
-# both.ntwk.p
-```
+#Calculate fractions
+mag.tax.clust.donut.df <- ord %>% 
+  left_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+   mutate(Phylum3 = case_when(Phylum %in% c("Actinobacteriota", "Proteobacteria") ~ Phylum,
+                                 is.na(Phylum) ~ "Unclassified", 
+                                 TRUE ~ "Other")) %>% 
+  mutate(Phylum3 = fct_relevel(Phylum3, "Actinobacteriota", "Proteobacteria")) %>% 
+  group_by(Cluster, Phylum3) %>% 
+  summarise(Count = n()) %>% 
+  ungroup() %>% 
+  arrange(Cluster, Phylum3) %>% 
+  group_by(Cluster) %>% 
+  mutate(Fraction = Count/sum(Count)) %>% 
+  mutate(ymax = cumsum(Fraction),
+         nCluster = n()) %>% 
+  mutate(ymin = c(0, ymax[1:nCluster - 1]))
 
+#Plot
+mag.donut.p <- mag.tax.clust.donut.df %>% 
+  ggplot() +
+  geom_rect(aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = Phylum3)) +
+  geom_text(data = . %>% group_by(Cluster) %>% summarise(Total = sum(Count)), aes(2, 0, label = Total), size = 5) +
+  scale_fill_manual(name = "Phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
+                     breaks = c("Actinobacteriota", "Proteobacteria", "Other", "Unclassified")) +
+  coord_polar(theta="y") + 
+  xlim(c(2, 4)) +
+  facet_grid(Cluster ~ .) +
+  theme_void() +
+  theme(text = element_text(size = 12),
+        legend.position = "right")
+
+mag.donut.p
+```
 ```{r}
-# votu.tax.donut.df
-# mag.tax.clust.donut.df
-# 
-# both.tax.donut.df <- rbind(votu.tax.donut.df, mag.tax.clust.donut.df) %>% 
-#   ungroup() %>% 
-#   mutate(Set = ifelse(str_detect(Cluster, "vOTU"), "vOTUs", "MAGs")) %>% 
-#   mutate(Set = fct_relevel(Set, "vOTUs")) %>% 
-#   mutate(Phylum3 = as.character(Phylum3),
-#          HostPhylum3 = as.character(HostPhylum3)) %>% 
-#   filter(Cluster != "All") %>% 
-#   mutate(Phylum = ifelse(is.na(HostPhylum3), Phylum3, HostPhylum3)) %>% 
-#   # mutate(Cluster2 = case_when(Cluster == "vOTU trend group 1" ~ "Dry-dominant",
-#   #                          Cluster == "vOTU trend group 2" ~ "Early responders",
-#   #                          Cluster == "vOTU trend group 3" ~ "Late responders",
-#   #                          Cluster == "MAG trend group 1" ~ "Dry-dominant",
-#   #                          Cluster == "MAG trend group 2" ~ "Wet-up responsive")) %>% 
-#   mutate(Cluster2 = case_when(Cluster == "vOTU trend group 1" ~ "Dry",
-#                            Cluster == "vOTU trend group 2" ~ "Early",
-#                            Cluster == "vOTU trend group 3" ~ "Late",
-#                            Cluster == "MAG trend group 1" ~ "Dry",
-#                            Cluster == "MAG trend group 2" ~ "Wet-up")) 
-# 
-# both.tax.p.1 <- both.tax.donut.df %>% 
-#   filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
-#   ggplot(aes(Cluster2, Fraction*100, fill = Phylum)) +
-#   geom_bar(stat = "identity", position = "dodge") +
-#   lemon::facet_rep_grid(. ~ Set, repeat.tick.labels = "all", scales = "free", space = "free") +
-#   scale_y_continuous(breaks = c(0, 0.03, 0.06, 0.09, 0.12)*100, limits = c(0,0.12)*100) +
-#   scale_fill_manual(name = "(Host) phylum", values = prism.pal[c(2,9)]) + 
-#   ylab("Percentage\nwithin group") +
-#   xlab("Trait group") +
-#   theme_bw() +
-#   theme(text = element_text(size = 12),
-#         axis.text.x = element_text(angle = 45, hjust = 1),
-#       #  axis.title.x = element_blank(),
-#         legend.position = "none")
-#   
-# both.tax.p.2 <- both.tax.donut.df %>% 
-#   filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
-#   ggplot(aes(Cluster2, Fraction * 100, fill = Phylum)) +
-#   geom_bar(stat = "identity", position = "dodge") +
-#   lemon::facet_rep_grid(. ~ Set, repeat.tick.labels = "all", scales = "free", space = "free") +
-#   scale_y_continuous(breaks = c(0,0.2, 0.4, 0.6, 0.8)*100, limits = c(0,0.8)*100) +
-#   scale_fill_manual(name = "(Host) phylum", values = prism.pal[c(2,9)]) + 
-#   ylab("Percentage\nwithin group") +
-#   xlab("Trait group") +
-#   theme_bw() +
-#   theme(text = element_text(size = 12),
-#         axis.text.x = element_text(angle = 45, hjust = 1),
-#         #axis.title.x = element_blank(),
-#         legend.position = "none")
-#   
-# 
-# both.tax.p.1
-# both.tax.p.2
-# 
+votu.tax.donut.df
+mag.tax.clust.donut.df
+
+both.tax.donut.df <- rbind(votu.tax.donut.df, mag.tax.clust.donut.df) %>%
+  ungroup() %>%
+  mutate(Set = ifelse(str_detect(Cluster, "vOTU"), "vOTUs", "MAGs")) %>%
+  mutate(Set = fct_relevel(Set, "vOTUs")) %>%
+  mutate(Phylum3 = as.character(Phylum3),
+         HostPhylum3 = as.character(HostPhylum3)) %>%
+  filter(Cluster != "All") %>%
+  mutate(Phylum = ifelse(is.na(HostPhylum3), Phylum3, HostPhylum3)) %>%
+  mutate(Cluster2 = case_when(Cluster == "vOTU trend group 1" ~ "Dry",
+                           Cluster == "vOTU trend group 2" ~ "Early",
+                           Cluster == "vOTU trend group 3" ~ "Late",
+                           Cluster == "MAG trend group 1" ~ "Dry",
+                           Cluster == "MAG trend group 2" ~ "Wet-up"))
+
+both.tax.p.1 <- both.tax.donut.df %>%
+  filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>%
+  ggplot(aes(Cluster2, Fraction*100, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  lemon::facet_rep_grid(. ~ Set, repeat.tick.labels = "all", scales = "free", space = "free") +
+  scale_y_continuous(breaks = c(0, 0.03, 0.06, 0.09, 0.12)*100, limits = c(0,0.12)*100) +
+  scale_fill_manual(name = "(Host) phylum", values = prism.pal[c(2,9)]) +
+  ylab("Percentage\nwithin group") +
+  xlab("Trait group") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+      #  axis.title.x = element_blank(),
+        legend.position = "none")
+
+both.tax.p.2 <- both.tax.donut.df %>%
+  filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>%
+  ggplot(aes(Cluster2, Fraction * 100, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  lemon::facet_rep_grid(. ~ Set, repeat.tick.labels = "all", scales = "free", space = "free") +
+  scale_y_continuous(breaks = c(0,0.2, 0.4, 0.6, 0.8)*100, limits = c(0,0.8)*100) +
+  scale_fill_manual(name = "(Host) phylum", values = prism.pal[c(2,9)]) +
+  ylab("Percentage\nwithin group") +
+  xlab("Trait group") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        #axis.title.x = element_blank(),
+        legend.position = "none")
+
+
+both.tax.p.1
+both.tax.p.2
+
 
 ```
 
@@ -377,41 +337,7 @@ mag.cluster.tax.p <- ord %>%
 mag.cluster.tax.p
 ```
 
-Generate donut plots highlighting the contribution of actinos and proteos to each temporal group
-```{r}
-#Calculate fractions
-mag.tax.clust.donut.df <- ord %>% 
-  left_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
-   mutate(Phylum3 = case_when(Phylum %in% c("Actinobacteriota", "Proteobacteria") ~ Phylum,
-                                 is.na(Phylum) ~ "Unclassified", 
-                                 TRUE ~ "Other")) %>% 
-  mutate(Phylum3 = fct_relevel(Phylum3, "Actinobacteriota", "Proteobacteria")) %>% 
-  group_by(Cluster, Phylum3) %>% 
-  summarise(Count = n()) %>% 
-  ungroup() %>% 
-  arrange(Cluster, Phylum3) %>% 
-  group_by(Cluster) %>% 
-  mutate(Fraction = Count/sum(Count)) %>% 
-  mutate(ymax = cumsum(Fraction),
-         nCluster = n()) %>% 
-  mutate(ymin = c(0, ymax[1:nCluster - 1]))
 
-#Plot
-mag.donut.p <- mag.tax.clust.donut.df %>% 
-  ggplot() +
-  geom_rect(aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = Phylum3)) +
-  geom_text(data = . %>% group_by(Cluster) %>% summarise(Total = sum(Count)), aes(2, 0, label = Total), size = 5) +
-  scale_fill_manual(name = "Phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
-                     breaks = c("Actinobacteriota", "Proteobacteria", "Other", "Unclassified")) +
-  coord_polar(theta="y") + 
-  xlim(c(2, 4)) +
-  facet_grid(Cluster ~ .) +
-  theme_void() +
-  theme(text = element_text(size = 12),
-        legend.position = "right")
-
-mag.donut.p
-```
 Perform hypergeometric tests to assess over/under representation of phyla within each temporal group
 ```{r}
 #Filter phyla with less than 10 members in the dataset

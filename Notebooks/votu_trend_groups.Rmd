@@ -258,7 +258,7 @@ ntwk.tax.p <- nodes.filt %>%
                                  TRUE ~ "Other")) %>% 
   mutate(HostPhylum2 = fct_relevel(HostPhylum2, "Other", "Unclassified", after = Inf)) %>% 
   ggplot() +
-  geom_line(data = edges.filt, aes(x,y, group = Pair), color = "gray25", alpha = 0.1) +
+ # geom_line(data = edges.filt, aes(x,y, group = Pair), color = "gray25", alpha = 0.1) +
   geom_point(data = . %>% filter(HostPhylum2 == "Unclassified"), alpha = 0.5, aes(x,y, color = HostPhylum2)) +
   geom_point(data = . %>% filter(!is.na(HostPhylum)), alpha = 0.5, aes(x,y, color = HostPhylum2)) +
   ggforce::geom_circle(data = circle, aes(x0 = 0.5, y0 = 0.5, r = 0.55), color = "gray25", linetype = 2) +
@@ -279,7 +279,7 @@ ntwk.tax.p
 
 Plot network highlight actinos and proteos, and subnetworks of vOTUs in each temporal group
 ```{r}
-#Temporar data frame to hold all the relevant network info to be plotted
+#Temporary data frame to hold all the relevant network info to be plotted
 tmp.ntwk.df <- nodes.filt %>%
   left_join(iphop.genome, by = c("Genome" = "Virus")) %>% 
   left_join(ord, by = c("Genome" = "OTU_ID")) %>% 
@@ -307,18 +307,29 @@ edges.master <- rbind(mutate(edges.filt, Facet = "vOTU trend group 1" ),
                       mutate(edges.filt, Facet = "All"))
 
 #Plot
-votu.ntwk.p <- nodes.master %>%
+both.ntwk.p <-  nodes.master.2 %>%
+  ungroup() %>%
+  mutate(Facet = fct_relevel(Facet, "All", "All2", after = Inf)) %>%
+  mutate(Facet2 = case_when(Facet == "vOTU trend group 1" ~ "Dry-dominant",
+                             Facet == "vOTU trend group 2" ~ "Early responders",
+                             Facet == "vOTU trend group 3" ~ "Late responders",
+                             Facet == "All" ~ "All",
+                             Facet == "All2" ~ "All2")) %>%
+  mutate(Facet2 = fct_relevel(Facet2, "All", "All2", after = Inf)) %>%
   ggplot() +
   #geom_line(data = filter(edges.master, Facet == "All"), aes(x,y, group = Pair), color = "gray5", alpha = 0.1, size = 0.1) +
   ggforce::geom_circle(data = circle, aes(x0 = 0.5, y0 = 0.5, r = 0.55), color = "gray25", linetype = 2) +
   geom_point(data = . %>% filter(Facet == "All" & HostPhylum2 == "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
-  geom_point(data = . %>% filter(Facet == "All" & HostPhylum2 != "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
-  geom_point(data = . %>% filter(Facet == "vOTU trend group 1" & Cluster == "vOTU trend group 1"), alpha = 0.3, size = 0.5, aes(x,y), color = cluster.pal[2]) +
-  geom_point(data = . %>% filter(Facet == "vOTU trend group 2" & Cluster == "vOTU trend group 2"), alpha = 0.3, size = 0.5, aes(x,y), color = cluster.pal[4]) +
-  geom_point(data = . %>% filter(Facet == "vOTU trend group 3" & Cluster == "vOTU trend group 3"), alpha = 0.3, size = 0.5,  aes(x,y), color = cluster.pal[6]) +
-  scale_color_manual(name = "Predicted\nhost phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
+  geom_point(data = . %>% filter(Facet == "All2" & HostPhylum2 != "Unclassified"), alpha = 0.3, size = 0.5, aes(x,y, color = HostPhylum2)) +
+  geom_point(data = . %>% filter(Facet == "vOTU trend group 1" & Cluster == "vOTU trend group 1" & HostPhylum2 == "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
+  geom_point(data = . %>% filter(Facet == "vOTU trend group 2" & Cluster == "vOTU trend group 2" & HostPhylum2 == "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
+  geom_point(data = . %>% filter(Facet == "vOTU trend group 3" & Cluster == "vOTU trend group 3" & HostPhylum2 == "Unclassified"), alpha = 0.7, size = 0.5,  aes(x,y, color = HostPhylum2)) +
+  geom_point(data = . %>% filter(Facet == "vOTU trend group 1" & Cluster == "vOTU trend group 1" & HostPhylum2 != "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
+  geom_point(data = . %>% filter(Facet == "vOTU trend group 2" & Cluster == "vOTU trend group 2" & HostPhylum2 != "Unclassified"), alpha = 0.7, size = 0.5, aes(x,y, color = HostPhylum2)) +
+  geom_point(data = . %>% filter(Facet == "vOTU trend group 3" & Cluster == "vOTU trend group 3" & HostPhylum2 != "Unclassified"), alpha = 0.7, size = 0.5,  aes(x,y, color = HostPhylum2)) +
+  scale_color_manual(name = "(Host) phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
                      breaks = c("Actinobacteriota", "Proteobacteria", "Other", "Unclassified")) +
-  facet_wrap(~ Facet, ncol = 1) +
+  facet_wrap(~ Facet2, nrow = 1) +
   theme_minimal() +
   theme(text = element_text(size = text.size),
         axis.text = element_blank(),
@@ -329,7 +340,8 @@ votu.ntwk.p <- nodes.master %>%
         strip.background = element_rect(fill = "gray25"),
         legend.position = "none")
 
-votu.ntwk.p
+
+both.ntwk.p
 ```
 
 Plot the host taxonomic composition of each temporal cluster
