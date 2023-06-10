@@ -125,13 +125,13 @@ Plot read recruitment boxplots
 votu.rec.df <- votu.metadata %>% 
   select(SampleID, PercentMapped75) %>% 
   rename("PercentReads" = "PercentMapped75") %>% 
-  mutate(Set = "vOTU database")
+  mutate(Set = "vOTUs")
 
 #Retrieve the percent of reads mapped to vOTUs using the 25% threshold
 mag.rec.df <- mag.metadata %>% 
   select(SampleID, PercentMapped25) %>% 
   rename("PercentReads" = "PercentMapped25") %>% 
-  mutate(Set = "MAG database")
+  mutate(Set = "MAGs")
 
 #Aggreaget vOTU and MAG results
 rec.df <- rbind(votu.rec.df, 
@@ -141,7 +141,7 @@ rec.df <- rbind(votu.rec.df,
                               Profile == "ViromeD" ~ "+DNase\nVirome",
                               Profile == "ViromeN" ~ "Untreated\nVirome")) %>% 
   mutate(Profile2 = fct_relevel(Profile2, "+DNase\nVirome", "Untreated\nVirome", "Total\nMetaG")) %>% 
-  mutate(Set = fct_relevel(Set, "vOTU database"))
+  mutate(Set = fct_relevel(Set, "vOTUs"))
 
 #Plot function
 plot_recruitment <- function(database.set){
@@ -152,7 +152,7 @@ plot_recruitment <- function(database.set){
     geom_boxplot(aes(color = Profile2), alpha = 0, size = 1) +
     scale_fill_manual(values = profile.pal) +
     scale_color_manual(values = profile.pal) +
-    ylab("Recruitment to database\n(% mapped reads)") +
+    ylab("Percentage of reads mapped\nto reference sequences") +
     xlab("Profile") +
     facet_wrap(~ Set, scales = "free") +
     theme_bw() +
@@ -164,8 +164,8 @@ plot_recruitment <- function(database.set){
 }
 
 #Plot
-votu.rec.p <- plot_recruitment("vOTU database")
-mag.rec.p <- plot_recruitment("MAG database")
+votu.rec.p <- plot_recruitment("vOTUs")
+mag.rec.p <- plot_recruitment("MAGs")
 
 votu.rec.p
 mag.rec.p
@@ -458,7 +458,7 @@ richness.p <- all.tidy %>%
   geom_point(aes(color = Profile2), size = 1, stroke = 1, alpha = 0.5, shape = 16) +
   geom_line(data = . %>% group_by(Set, Profile2, Soil, Soil2, Time) %>% summarise(MeanRichness = mean(n)), 
             aes(Time, MeanRichness, color = Profile2), size = 0.75) +
-  geom_line(data = aggregated.richness, aes(Time, AggregatedRichness, color = Profile2), size = 0.75) +
+  # geom_line(data = aggregated.richness, aes(Time, AggregatedRichness, color = Profile2), size = 0.75) +
   xlab("Time point (hrs. after wetup)") +
   ylab("Community richness") +
   scale_color_manual(name = "Profile", values = c("gray25", profile.pal), breaks = c("Aggregated", "+DNase Virome", "Untreated Virome", "Total MetaG")) +
@@ -497,10 +497,12 @@ yields.tidy <- yields %>%
 yields.p <- yields.tidy %>% 
   filter(Profile == "ViromeD") %>% 
   ggplot(aes(Time, Yield, color = Soil2)) +
-  geom_point(data = . %>% filter(Yield > 0), size = 1, shape = 16, stroke = 1, alpha = 0.5) +
-  geom_point(data = . %>% filter(Yield == 0), size = 1, shape = 1, stroke = 1, alpha = 0.5) +
-  geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)) %>% filter(MeanYield > 0), aes(y = MeanYield), size = 0.75, alpha = 1) +
-  geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)) %>% filter(Profile2 == "+DNase Virome" & str_detect(Soil2, "Jepson") & Time <= 24), aes(y = MeanYield), size = 0.75, alpha = 1, linetype = 2) +
+  # geom_point(data = . %>% filter(Yield > 0), size = 1, shape = 16, stroke = 1, alpha = 0.5) +
+  # geom_point(data = . %>% filter(Yield == 0), size = 1, shape = 1, stroke = 1, alpha = 0.5) +
+  geom_point(size = 1, shape = 16, stroke = 1, alpha = 0.5) +
+  # geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)) %>% filter(MeanYield > 0), aes(y = MeanYield), size = 0.75, alpha = 1) +
+  # geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)) %>% filter(Profile2 == "+DNase Virome" & str_detect(Soil2, "Jepson") & Time <= 24), aes(y = MeanYield), size = 0.75, alpha = 1, linetype = 2) +
+  geom_line(data = . %>% group_by(Soil2, Time, Profile2) %>% summarise(MeanYield = mean(Yield)), aes(y = MeanYield), size = 0.75, alpha = 1) +
   xlab("Timepoint (hrs. after wetup)") +
   ylab("DNA yield\n(ng/g of soil)") +
   scale_color_manual(name = "Soil type", values = soil.pal) +
@@ -607,6 +609,33 @@ plot_grid(v.votu.hop.p + theme(legend.position = "none"),
           t.mag.jpt.p + theme(legend.position = "none"),
           t.mag.jpb.p + theme(legend.position = "none"),
           nrow = 2)
+```
+
+PERMANOVA testing differences between T0 and T6 dry soils. Given the differences in the set of profiles generated for each soil type, we'll use untreated viromes for Jepson, and untreated DNase-treated viromes for Hopland and McLaughlin
+```{r}
+jpb.dry.map <- filter(v.map, Soil == "JepsonBot", Status == "Dry" & Profile == "ViromeN")
+jpt.dry.map <- filter(v.map, Soil == "JepsonTop", Status == "Dry" & Profile == "ViromeN")
+hop.dry.map <- filter(v.map, Soil == "Hopland", Status == "Dry" & Profile == "ViromeD")
+mcl.dry.map <- filter(v.map, Soil == "McLaughlin", Status == "Dry" & Profile == "ViromeD")
+
+jpb.dry.dist <- v.votu.dist[rownames(v.votu.dist) %in% jpb.dry.map$SampleID, colnames(v.votu.dist) %in% jpb.dry.map$SampleID]
+jpt.dry.dist <- v.votu.dist[rownames(v.votu.dist) %in% jpt.dry.map$SampleID, colnames(v.votu.dist) %in% jpt.dry.map$SampleID]
+hop.dry.dist <- v.votu.dist[rownames(v.votu.dist) %in% hop.dry.map$SampleID, colnames(v.votu.dist) %in% hop.dry.map$SampleID]
+mcl.dry.dist <- v.votu.dist[rownames(v.votu.dist) %in% mcl.dry.map$SampleID, colnames(v.votu.dist) %in% mcl.dry.map$SampleID]
+
+jpb.adonis <- vegan::adonis(as.dist(jpb.dry.dist) ~ TimeFctr,  data = jpb.dry.map)$aov.tab %>% as.data.frame() %>% mutate(Soil = "Jepson Swale", Profile = "Untreated viromes") 
+jpt.adonis <- vegan::adonis(as.dist(jpt.dry.dist) ~ TimeFctr,  data = jpt.dry.map)$aov.tab %>% as.data.frame() %>% mutate(Soil = "Jepson Mound", Profile = "Untreated viromes")
+hop.adonis <- vegan::adonis(as.dist(hop.dry.dist) ~ TimeFctr,  data = hop.dry.map)$aov.tab %>% as.data.frame() %>% mutate(Soil = "Hopland", Profile = "DNase-treated viromes")
+mcl.adonis <- vegan::adonis(as.dist(mcl.dry.dist) ~ TimeFctr,  data = mcl.dry.map)$aov.tab %>% as.data.frame() %>% mutate(Soil = "McLaughlin", Profile = "DNase-treated viromes")
+
+pmanova.supp.table <- rbind(jpt.adonis[row.names(jpt.adonis) == "TimeFctr",],
+      jpb.adonis[row.names(jpb.adonis) == "TimeFctr",],
+      hop.adonis[row.names(hop.adonis) == "TimeFctr",],
+      mcl.adonis[row.names(mcl.adonis) == "TimeFctr",]) %>% 
+  mutate(Formula = "dist ~ Timepoint") %>% 
+  select(Soil:Formula, Df:"Pr(>F)")
+
+write.table(pmanova.supp.table, "../Tables/supp_table_votu_dry_pmanova.tsv", sep = "\t", quote = F, row.names = F)
 ```
 
 
@@ -725,7 +754,7 @@ plot_grid(hop.dist.p + theme(legend.position = "none"),
           mcl.dist.p + theme(legend.position = "none"),
           jpt.dist.p + theme(legend.position = "none"),
           jpb.dist.p + theme(legend.position = "none"),
-          get_legend(dist.decay.p + theme(legend.position = "right")),
+          get_legend(jpb.dist.p + theme(legend.position = "right")),
           nrow = 1)
 ```
 
@@ -791,7 +820,10 @@ v.votu.tidy %>%
         axis.text.x = element_text(angle = 45, hjust = 1),
         strip.background =element_rect(fill="gray25"),
         strip.text = element_text(colour = "white"))
-  
+
+## Get the percent of vOTUs detected in dry soils
+
+dry.detection %>% group_by(OTU_ID) %>% count() %>% nrow() / nrow(votu)
 ```
 
 Occupancy analysis
@@ -861,10 +893,12 @@ jac.heatmap.df <- rbind(mutate(v.jac.heatmap.df, Set = "vOTU"),
 
 #Plot
 jac.heatmap.p <- jac.heatmap.df %>% 
+  group_by(Soil2.x, TimeFctr.x, TimeFctr.y, Set, Profile2.x) %>% 
+  summarise(MeanSimilarity = mean(Similarity)) %>% 
   mutate(Soil2.x = fct_relevel(Soil2.x, "Jepson Swale", "Jepson Mound", "McLaughlin", "Hopland")) %>% 
-  ggplot(aes(TimeFctr.x, TimeFctr.y, fill = Similarity)) +
+  ggplot(aes(TimeFctr.x, TimeFctr.y, fill = MeanSimilarity)) +
   geom_tile() +
-  scale_fill_viridis_c(name = "Jaccard\nsimilarity", direction = -1, option = "A") +
+  scale_fill_viridis_c(name = "Mean\nJaccard\nsimilarity", direction = -1, option = "A") +
   xlab("Post-wetup time point") +
   ylab("Post-wetup time point") +
   lemon::facet_rep_grid(Soil2.x ~ Set + Profile2.x, repeat.tick.labels = "all") +
@@ -889,4 +923,17 @@ plot_grid(time.occ.p, jac.heatmap.p + theme(legend.position = "none"), get_legen
           align = "hv", axis = "lrtb", nrow = 1, rel_widths = c(3,3,0.5),
           labels = c("a", "b", NA), label_size = 15)
 ```
+
+Jaccard stats
+```{r}
+jac.heatmap.df %>% 
+  group_by(Set) %>% 
+  summarise(MeanSimilarity = mean(Similarity))
+
+jac.heatmap.df %>% 
+  filter(TimeFctr.x == "T6" & TimeFctr.y == "T1") %>% 
+  group_by(Set) %>% 
+  summarise(MeanSimilarity = mean(Similarity))
+```
+
 

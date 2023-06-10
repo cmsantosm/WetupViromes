@@ -22,6 +22,7 @@ richness = data.frame(SampleID = colnames(otu),
                       Richness = colSums(otu>0))
 
 a <- richness %>% 
+  mutate(Set = "Hopland (2019)") %>% 
   inner_join(map, by = "SampleID") %>% 
   mutate(TimeFctr = ifelse(Time == 0, "Pre-wetup\n(0 hrs.)", "Post-wetup\n(336 hrs.)")) %>% 
   mutate(TimeFctr = fct_relevel(TimeFctr, "Pre-wetup\n(0 hrs.)")) %>% 
@@ -29,7 +30,7 @@ a <- richness %>%
   ggplot(aes(TimeFctr, Richness, color = Soil)) +
   geom_boxplot() +
   geom_point(alpha = 0.7, size = 3) +
-  facet_grid(Soil ~ Profile2) +
+  facet_grid(. ~ Set + Profile2) +
   #scale_color_manual(values = profile.pal) +
   scale_color_manual(values = soil.pal) +
   xlab("Time point\n(hrs. after wetup)") +
@@ -81,8 +82,8 @@ b <- ppt %>%
   geom_point(data = dry.period, aes(x = Date, y = TotalPrecipitation + 0.5)) +
   geom_point(data = dry.period, aes(x = Reference, y = TotalPrecipitation + 0.5)) +
   geom_text(data = dry.period, aes(x = Reference - (TemporalDifference/2), y = TotalPrecipitation + 1.5, label = Label)) +
-  facet_grid(Soil ~ .) +
-  ylab("Daily rainfall\n(mm)") +
+  #facet_grid(Soil ~ .) +
+  ylab("Daily rainfall in Hopland\n(mm)") +
   theme_bw() +
   theme(text = element_text(size = 12),
         strip.text = element_text(color = "white"),

@@ -1,0 +1,362 @@
+Load libraries
+```{r}
+source("../General/general_functions.R")
+library(tidyverse)
+library(cowplot)
+library(RColorBrewer)
+library(ggalluvial)
+```
+
+Determine paletttes and plotting parameters
+```{r}
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+text.size <- 10
+```
+
+Load and filter data
+```{r}
+votu <- readRDS("../Data/rare_votu75_tmean.RDS")
+#Remove singletons
+votu <- votu[rowSums(votu>0) > 1,]
+votu <- votu[, colSums(votu)>0]
+
+mag <- readRDS("../Data/rare_mag25_tmean.RDS")
+#Remove singletons
+mag <- mag[rowSums(mag>0) > 1,]
+mag <- mag[, colSums(mag)>0]
+
+map <- readRDS("../Data/wetup_map.RDS")
+
+votu.metadata <- readRDS("../Data/votu_processing_metadata.RDS")
+mag.metadata <- readRDS("../Data/mag_processing_metadata.RDS")
+
+yields <- read.table("../Data/dna_yields.tsv", header = T, sep = "\t")
+
+iphop <- readRDS("../Data/iphop_genome_aggregated.RDS")
+vc_genome <- readRDS("../Data/genome_vc_master.RDS")
+vc_cluster <- readRDS("../Data/cluster_vc_master.RDS")
+
+vibrant.annotation <- readRDS("../Data/vibrant_annotation.RDS")
+vibrant.quality <- readRDS("../Data/vibrant_quality.RDS")
+checkv <- readRDS("../Data/checkv.RDS")
+
+temperate <- readRDS("../Data/predicted_temperate.RDS")
+
+assembly <- read.table("../Data/10k.megahit.summary", header = T, sep = "\t", quote = "")
+coassembly <- read.table("../Data/coassembly.megahit.summary", header = T, sep = "\t", quote = "")
+```
+
+Parse VIBRANT quality file
+```{r}
+votu.quality <- vibrant.quality %>% 
+  separate(Quality, c("Q1", "Q2", "Q3", "Q4"), sep = " ") %>% 
+  group_by(OTU_ID, Q1) %>% 
+  count() %>% 
+  spread(key = Q1, value = n) %>% 
+  mutate(Circular = complete > 0) %>% 
+  select(-complete) %>% 
+  gather(key = "Qual_prel", value = "value", high:medium) %>% 
+  filter(!is.na(value)) %>% 
+  mutate(Circular = ifelse(is.na(Circular), FALSE, TRUE)) %>% 
+  mutate(Quality = ifelse(Circular, "circular", Qual_prel)) 
+```
+
+Plot contig length vs predicted protein content
+```{r}
+length.p <- checkv %>% 
+  filter(contig_id %in% rownames(votu)) %>% 
+  inner_join(votu.quality, by = c("contig_id" = "OTU_ID")) %>% 
+  ggplot(aes(contig_length, gene_count)) +
+  geom_point(alpha = 0.1, , color = "gray25", size = 0.5) +
+  scale_color_brewer(palette = "Set2") +
+  xlab("Contig length") +
+  ylab("Number of predicted genes") +
+  scale_x_log10(labels = scales::unit_format(unit = "Kbp", scale = 1e-3 ,accuracy = 1)) +
+  scale_y_log10() +
+  theme_bw() +
+  annotation_logticks() +
+  theme(text = element_text(size = 10))
+
+length.p
+```
+
+Compare VIBRANT quality vs CheckV completeness
+```{r}
+completeness.p <- checkv %>% 
+  filter(contig_id %in% rownames(votu)) %>% 
+  mutate(completeness_bin = cut_interval(completeness,length = 25)) %>% 
+  inner_join(votu.quality, by = c("contig_id" = "OTU_ID")) %>% 
+  group_by(completeness_bin, Quality) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(Quality = fct_relevel(Quality, "medium", "high", "circular")) %>% 
+  mutate(completeness_bin = ifelse(is.na(completeness_bin), "undetermined", as.character(completeness_bin))) %>% 
+  mutate(completeness_bin = fct_relevel(completeness_bin, "undetermined", "[0,25]")) %>% 
+  ggplot(aes(y = n, 
+             axis2 = completeness_bin,
+             axis1 = Quality)) +
+  geom_alluvium(aes(fill = Quality), alpha = 0.7) +
+  geom_stratum(width = 4/12, fill = "gray25", color = "white") +
+  scale_x_discrete(limits = c("VIBRANT\nquality", "CheckV\ncompleteness"), expand = c(.2, .05)) +
+  geom_stratum(width = 4/12, aes(fill = Quality), color = "white") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), color = "white", size = 3) +
+  scale_fill_brewer(palette = "Set2") +
+  ylab("Number of vOTUs") +
+  theme_minimal() +
+  theme(text = element_text(size = 10),
+        legend.position = "none")
+
+#How many vOTUs have a completeness > 50?
+checkv %>% 
+  filter(contig_id %in% rownames(votu)) %>% 
+  group_by(completeness > 50) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(Percent = n/sum(n))
+```
+
+Plot top 20 annotations
+```{r}
+annotation.p <- vibrant.annotation %>% 
+  group_by(Accession, Name) %>% 
+  count() %>% 
+  arrange(-n) %>% 
+  head(n = 20) %>% 
+  ggplot(aes(reorder(Name, n), n)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(y = 10, label = Accession), hjust = 0, size = 2.5, color = "white") +
+  coord_flip() +
+  xlab("Gene") +
+  ylab("Number of occurrences in vOTU gene database") +
+  theme_bw() +
+  theme(text = element_text(size = 10),
+        axis.title.y = element_blank())
+
+annotation.p
+```
+
+Parse VIBRANT and iPHoP results
+```{r}
+votu.tax <- vc_genome %>% 
+  filter(Genome %in% row.names(votu)) %>% 
+  filter(Source == "wetup") %>% 
+  select(Genome, "VC") %>% 
+  left_join(vc_cluster, by = "VC") %>% 
+  select(Genome, Order, Family, Genus) %>% 
+  gather(key = "Rank", value = "value", Order:Genus) %>%
+  mutate(value = ifelse(value == "Unassigned" | value == "Mixed" | is.na(value), "Unclassified", value)) %>% 
+  spread(key = "Rank", value = "value") %>% 
+  left_join(iphop, by = c("Genome" = "Virus")) %>% 
+  gather(key = "Rank", value = "value", HostDomain:HostSpecies) %>%
+  mutate(value = ifelse(value == "Mixed" | is.na(value), "Unclassified", value)) %>% 
+  spread(key = "Rank", value = "value") %>% 
+  rename("vOTU_ID" = "Genome",
+         "ViralFamily" = "Family",
+         "ViralGenus" = "Genus",
+         "ViralOrder" = "Order")
+
+#How many vOTUs were classified and had an assigned host?
+votu.tax %>% 
+  group_by(ViralFamily) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(Percent = n/sum(n))
+
+votu.tax %>% 
+  group_by(HostPhylum) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate(Percent = n/sum(n))
+```
+
+Plot host tax stats
+```{r}
+host.tax.tile.p <- votu %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  group_by(OTU_ID, Soil2) %>% 
+  count() %>% 
+  group_by(OTU_ID) %>% 
+  mutate(Total = n()) %>% 
+  ungroup() %>% 
+  mutate(Detection = ifelse(Total > 1, "Multiple soils", as.character(Soil2))) %>% 
+  group_by(OTU_ID, Detection) %>% 
+  count() %>% 
+  inner_join(votu.tax, by = c("OTU_ID" = "vOTU_ID")) %>% 
+  group_by(HostPhylum, Detection) %>% 
+  count() %>% 
+  group_by(HostPhylum) %>% 
+  mutate(Total = sum(n)) %>% 
+  mutate(Detection = fct_relevel(Detection, "Hopland", "McLaughlin")) %>% 
+  ggplot(aes(Detection, reorder(HostPhylum, Total), fill = Detection)) +
+  geom_tile(size = 1, color = "white") +
+  geom_text(data = . %>% filter(Detection %in% c("Hopland", "McLaughlin")), aes(label = n), size = 2, color = "white") +
+  geom_text(data = . %>% filter(!Detection %in% c("Hopland", "McLaughlin")), aes(label = n), size = 2, color = "black") +
+  ylab("Host prediction") +
+  xlab("vOTU detection") +
+  scale_fill_manual(values = c(soil.pal, "gray75")) +
+  theme_minimal() +
+  theme(text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+
+Plot votu taxonomy stats
+```{r}
+votu.tax.tile.p <- votu %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  group_by(OTU_ID, Soil2) %>% 
+  count() %>% 
+  group_by(OTU_ID) %>% 
+  mutate(Total = n()) %>% 
+  ungroup() %>% 
+  mutate(Detection = ifelse(Total > 1, "Multiple soils", as.character(Soil2))) %>% 
+  group_by(OTU_ID, Detection) %>% 
+  count() %>% 
+  inner_join(votu.tax, by = c("OTU_ID" = "vOTU_ID")) %>% 
+  group_by(ViralFamily, Detection) %>% 
+  count() %>% 
+  group_by(ViralFamily) %>% 
+  mutate(Total = sum(n)) %>% 
+  mutate(Detection = fct_relevel(Detection, "Hopland", "McLaughlin")) %>% 
+  ggplot(aes(Detection, reorder(ViralFamily, Total), fill = Detection)) +
+  geom_tile(size = 1, color = "white") +
+  geom_text(data = . %>% filter(Detection %in% c("Hopland", "McLaughlin")), aes(label = n), size = 2, color = "white") +
+  geom_text(data = . %>% filter(!Detection %in% c("Hopland", "McLaughlin")), aes(label = n), size = 2, color = "black") +
+  xlab("vOTU detection") +
+  ylab("Viral\nfamily") +
+  scale_fill_manual(values = c(soil.pal, "gray75")) +
+  theme_minimal() +
+  theme(text = element_text(size = 10),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+
+
+Put together
+```{r}
+right <- plot_grid(votu.tax.tile.p,
+          host.tax.tile.p,
+          align = "hv", axis = "tblr", ncol = 1, rel_widths = c(2,1), rel_heights = c(1.25, 3),
+          labels = c("d", "e"))
+
+tmp <- plot_grid(length.p, completeness.p, align = "hv", axis = "tblr", ncol = 2, labels = c("a", "b"))
+
+left <- plot_grid(tmp, annotation.p, ncol = 1, labels = c(NA, "c"), rel_heights = c(1,1.25))
+
+#820:575
+plot_grid(left, right, rel_widths = c(2,1))
+```
+
+
+Generate supplementary table with general vOTU stats
+```{r}
+soil.detection <- votu %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  group_by(OTU_ID, Soil2) %>% 
+  count() %>% 
+  group_by(OTU_ID) %>% 
+  count() %>% 
+  ungroup() %>% 
+  rename("number_of_soil_types_where_detected" = "n")
+
+dry.detection <- votu %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Status == "Dry") %>% 
+  group_by(OTU_ID) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate("detected_in_dry_soils" = TRUE) %>% 
+  select(OTU_ID, detected_in_dry_soils)
+
+wet.detection <- votu %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Status == "Wet") %>% 
+  group_by(OTU_ID) %>% 
+  count() %>% 
+  ungroup() %>% 
+  mutate("detected_in_wet_soils" = TRUE) %>% 
+  select(OTU_ID, detected_in_wet_soils)
+
+votu.supp.table <- votu.quality %>% 
+  filter(OTU_ID %in% row.names(votu)) %>% 
+  inner_join(checkv, by = c("OTU_ID" = "contig_id")) %>% 
+  left_join(temperate, by = "OTU_ID") %>% 
+  left_join(votu.tax, by = c("OTU_ID" = "vOTU_ID")) %>% 
+  rename("VIBRANT_quality" = "Quality") %>% 
+  rename("CheckV_completeness" = "completeness") %>% 
+  rename("predicted_temperate" = "PredictedLysogen") %>% 
+  select(OTU_ID, VIBRANT_quality, CheckV_completeness, contig_length, gene_count, predicted_temperate, ViralOrder, ViralFamily, ViralGenus, HostPhylum, HostClass, HostOrder, HostFamily, HostGenus, HostSpecies) %>% 
+  left_join(soil.detection, by = "OTU_ID") %>% 
+  left_join(dry.detection, by = "OTU_ID") %>% 
+  left_join(wet.detection, by = "OTU_ID") %>% 
+  mutate(predicted_temperate = ifelse(is.na(predicted_temperate), FALSE, predicted_temperate)) %>% 
+  mutate(detected_in_dry_soils = ifelse(is.na(detected_in_dry_soils), FALSE, detected_in_dry_soils)) %>% 
+  mutate(detected_in_wet_soils = ifelse(is.na(detected_in_wet_soils), FALSE, detected_in_wet_soils)) %>% 
+  rename("vOTU_ID" = "OTU_ID")
+
+votu.supp.table
+
+write.table(votu.supp.table, "../Tables/supp_votu_stats.tsv", quote = F, sep = "\t", row.names = F)
+```
+
+Generate supplementary table with DNA yields
+```{r}
+yield.supp.table <- yields %>% 
+  select(SampleID, Profile, Soil, Status, Time, Yield) %>% 
+  mutate(Profile = case_when(Profile == "ViromeD" ~ "+DNase Virome",
+                             Profile == "ViromeN" ~ "Untreated Virome",
+                             Profile == "TotalMG" ~ "Total MetaG")) %>% 
+  mutate(Soil = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                          Soil == "JepsonBot" ~ "Jepson Swale",
+                          Soil == "Hopland" ~ "Hopland",
+                          Soil == "McLaughlin" ~ "McLaughlin")) %>% 
+  rename("hrs_post_wetup" = "Time") %>% 
+  rename("DNA_yield" = "Yield") %>% 
+  mutate(DNA_yield = ifelse(is.na(DNA_yield), 0, DNA_yield)) %>% 
+  filter(!(Profile == "Total MetaG" & Status == "Dry" & hrs_post_wetup == 240)) 
+  
+
+write.table(yield.supp.table, "../Tables/supp_dna_yields.tsv", quote = F, sep = "\t", row.names = F)
+```
+
+Generate supplementary table with assembly stats
+```{r}
+assembly.good <- assembly %>% 
+  mutate(SampleID = str_remove(filename, "/home/csantosm/wetup/megahit/10k_contigs/10k.")) %>% 
+  mutate(SampleID = str_remove(SampleID, ".renamed.contigs.fa")) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  mutate(AssemblyType = "Single sample") %>% 
+  mutate(ctg_min = 10000) %>% 
+  select(SampleID, AssemblyType, Profile2, Soil2, n_contigs, contig_bp, ctg_N50, ctg_L50, ctg_N90, ctg_L90, ctg_min, ctg_max) %>% 
+  rename("Profile" = "Profile2",
+         "Soil" = "Soil2")
+
+coassembly.good <- coassembly %>% 
+  mutate(SampleID = str_remove(filename, "/home/csantosm/wetup/soil_megahit/stats/2k.")) %>% 
+  mutate(SampleID = str_remove(SampleID, ".renamed.contigs.fa")) %>% 
+  mutate(SampleID = str_remove(SampleID, "_k29")) %>% 
+  mutate(SampleID = ifelse(str_detect(SampleID, "_VD"), SampleID, paste0(SampleID, "_TM"))) %>% 
+  mutate(Profile = ifelse(str_detect(SampleID, "_VD"), "Untreated Virome", "Total MetaG")) %>% 
+  mutate(Soil = case_when(str_detect(SampleID, "HL") ~ "Hopland",
+                          str_detect(SampleID, "ML") ~ "McLaughlin",
+                          str_detect(SampleID, "JT") ~ "Jepson Mound",
+                          str_detect(SampleID, "JB") ~ "Jepson Swale")) %>% 
+  mutate(AssemblyType = "Coassembly") %>% 
+  mutate(ctg_min = 2000) %>% 
+  select(SampleID, AssemblyType, Profile, Soil, n_contigs, contig_bp, ctg_N50, ctg_L50, ctg_N90, ctg_L90, ctg_min, ctg_max)
+
+assembly.supp.table <- rbind(assembly.good, coassembly.good)
+
+write.table(assembly.supp.table, "../Tables/supp_assembly.tsv", quote = F, sep = "\t", row.names = F)
+```
+

@@ -1,0 +1,296 @@
+Load libraries
+```{r}
+library(rcartocolor)
+library(RColorBrewer)
+library(DESeq2)
+library(biobroom)
+library(cowplot)
+source("../General/general_functions.R")
+library(tidyverse)
+```
+
+Load data and format
+```{r}
+#Get the phyla names that are highlighted in the MAG section
+int.taxa <- c("Acidobacteriota", "Actinobacteriota", "Bacteroidota", "Chloroflexota", "Gemmatimonadota", "Firmicutes", "Myxococcota", "Patescibacteria", "Proteobacteria", "Thermoproteota", "Verrucomicrobiota")
+prism.pal <- carto_pal(12, "Prism")
+
+cluster.pal <- carto_pal(7, "Teal")[c(2,4)]
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+text.size = 10
+```
+
+Load data
+```{r}
+tax <- readRDS("../../wetup_16s/Analysis/Data/gtdb_tax.RDS") %>% 
+  mutate(Phylum2 = ifelse(Phylum %in% int.taxa, as.character(Phylum), "Other")) %>% 
+  mutate(Phylum2 = fct_relevel(Phylum2, "Other"))
+
+asv <- readRDS("../Data/amplicon_rare_asv_table.RDS")
+asv <- asv[rowSums(asv>0) > 1,]
+asv <- asv[, colSums(asv)>0]
+
+map <- readRDS("../Data/wetup_map.RDS") %>% 
+  filter(!is.na(ampSampleID)) %>% 
+  mutate(SampleID = ampSampleID) 
+
+asv <- asv[,match(map$SampleID, colnames(asv))]
+```
+
+Function to retrieve only ASVs that were detected across 3 replicates in at least one time point. 
+```{r}
+get_occ_ids <- function(otu) {
+  otu %>% 
+  as.data.frame() %>% 
+  tidy_otu() %>% 
+  inner_join(map, by = "SampleID") %>% 
+  group_by(TimeFctr, OTU_ID) %>% 
+  summarise(Occurrence = sum(Count > 0)) %>% 
+  filter(Occurrence == 3) %>% 
+  .$OTU_ID %>% 
+  unique()
+}
+```
+
+Subset data
+```{r}
+jpb.map <- filter(map, Soil == "JepsonBot" & Profile == "TotalMG")
+jpb.asv <- asv[,colnames(asv) %in% jpb.map$SampleID]
+jpb.occ.ids <- get_occ_ids(jpb.asv)
+jpb.asv <- jpb.asv[rownames(jpb.asv) %in% jpb.occ.ids,]
+jpb.asv <- jpb.asv[rowSums(jpb.asv)>0,]
+
+jpt.map <- filter(map, Soil == "JepsonTop" & Profile == "TotalMG")
+jpt.asv <- asv[,colnames(asv) %in% jpt.map$SampleID]
+jpt.occ.ids <- get_occ_ids(jpt.asv)
+jpt.asv <- jpt.asv[rownames(jpt.asv) %in% jpt.occ.ids,]
+jpt.asv <- jpt.asv[rowSums(jpt.asv)>0,]
+
+hop.map <- filter(map, Soil == "Hopland" & Profile == "TotalMG")
+hop.asv <- asv[,colnames(asv) %in% hop.map$SampleID]
+hop.occ.ids <- get_occ_ids(hop.asv)
+hop.asv <- hop.asv[rownames(hop.asv) %in% hop.occ.ids,]
+hop.asv <- hop.asv[rowSums(hop.asv)>0,]
+
+mcl.map <- filter(map, Soil == "McLaughlin" & Profile == "TotalMG")
+mcl.asv <- asv[,colnames(asv) %in% mcl.map$SampleID]
+mcl.occ.ids <- get_occ_ids(mcl.asv)
+mcl.asv <- mcl.asv[rownames(mcl.asv) %in% mcl.occ.ids,]
+mcl.asv <- mcl.asv[rowSums(mcl.asv)>0,]
+```
+
+Run models
+```{r}
+get_deseq_result <- function(filt.map, filt.asv) {
+  dds <- DESeqDataSetFromMatrix(countData = filt.asv,
+                                   colData = filt.map,
+                                   design = ~ TimeFctr)
+
+  dds <- DESeq(dds, test = "LRT", reduced = ~1)
+  res <- results(dds) %>% tidy() %>% dplyr::rename("OTU_ID" = "gene")
+  res
+}
+
+jpb.res <- get_deseq_result(jpb.map, jpb.asv) %>% mutate(Soil = "JepsonBot")
+jpt.res <- get_deseq_result(jpt.map, jpt.asv) %>% mutate(Soil = "JepsonTop")
+hop.res <- get_deseq_result(hop.map, hop.asv) %>% mutate(Soil = "Hopland")
+mcl.res <- get_deseq_result(mcl.map, mcl.asv) %>% mutate(Soil = "McLaughlin")
+
+all.res <- rbind(jpb.res, jpt.res, hop.res, mcl.res) %>%
+  filter(!is.na(p.value)) %>%
+  mutate(p.adjusted2 = p.adjust(p.adjusted)) %>%
+  mutate(OTU.Soil = paste(OTU_ID, Soil, sep = "."))
+
+all.sig <- filter(all.res, p.adjusted < 0.05) 
+
+dim(all.sig)
+```
+
+Generate a matrix with the mean z-scored abundances of each significant OTU in its corresponding soil
+```{r}
+zs.tidy <- asv %>%
+  as.data.frame() %>% 
+  tidy_otu() %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "TotalMG") %>% 
+  group_by(Soil, TimeFctr, OTU_ID) %>%
+  summarise(MeanCount = mean(Count)) %>%
+  ungroup() %>% 
+  mutate(OTU.Soil = paste(OTU_ID, Soil, sep = ".")) %>% 
+  filter(OTU.Soil %in% all.sig$OTU.Soil) %>% 
+  group_by(OTU.Soil) %>% 
+  mutate(MeanZS = (MeanCount - mean(MeanCount))/sd(MeanCount)) %>% 
+  separate(OTU.Soil, c("OTU_ID", "Soil"), sep = "\\.", remove = F) %>% 
+  mutate(Time = case_when(TimeFctr == "T0" ~ 0,
+                          TimeFctr == "T1" ~ 24,
+                          TimeFctr == "T2" ~ 48,
+                          TimeFctr == "T3" ~ 72,
+                          TimeFctr == "T4" ~ 120,
+                          TimeFctr == "T5" ~ 168,
+                          TimeFctr == "T6" ~ 240))
+
+zs.mtx <- zs.tidy %>% 
+  select(OTU.Soil, TimeFctr, MeanZS) %>% 
+  spread(key = TimeFctr, value = MeanZS)
+
+zs.mtx <- as.data.frame(zs.mtx) 
+rownames(zs.mtx) <- zs.mtx$OTU.Soil
+zs.mtx <- zs.mtx[,-1] 
+
+zs.mtx <- zs.mtx[rowSums(is.na(zs.mtx)) == 0,]
+```
+
+Perform hierarchical clustering and get the set of clusters and the order of OTUs
+```{r}
+k <- 2
+dist <- dist(as.matrix(zs.mtx)) 
+clust <- hclust(dist, method = "average") 
+ord.names <- clust$labels[clust$order] 
+ord.tmp <- data.frame(OTU.Soil = ord.names, order = 1:length(ord.names))
+cut <- cutree(clust[c(1,2,4)], k = k)
+ord.tmp$Cluster <- as.factor(cut[ord.tmp$OTU.Soil])
+
+zs.tidy %>% 
+  filter(MeanCount > 0) %>% 
+  inner_join(ord.tmp, by = "OTU.Soil") %>%
+  ggplot() +
+  geom_tile(aes(TimeFctr, reorder(OTU.Soil, order), fill =MeanZS)) +
+  scale_fill_viridis_c() +
+  facet_grid(Cluster ~ . , scales = "free", space = "free") +
+  theme_bw() +
+  theme(axis.text.y = element_blank())
+```
+
+Update the labels of clusters so that they are in chronological order
+```{r}
+ord <- ord.tmp %>% 
+  mutate(Cluster = case_when(Cluster == 1 ~ "Dry-dominant",
+                             Cluster == 2 ~ "Wet-up responders")) %>% 
+  separate(OTU.Soil, c("OTU_ID", "Soil"), sep = "\\.", remove = F)
+```
+
+Plot cluster trends
+```{r}
+asv.zscore.p <- zs.tidy %>% 
+  inner_join(select(ord, OTU.Soil, Cluster), by = "OTU.Soil") %>%
+  ggplot(aes(Time, MeanZS)) +
+  geom_line(aes(group = OTU.Soil, color = Cluster), alpha = 0.8) +
+  geom_line(data = . %>% group_by(Cluster, Time) %>% summarise(CMeanZS = mean(MeanZS)), aes(y = CMeanZS, group = Cluster), color = "gray15", size = 1) +
+  facet_grid(. ~ Cluster, scales = "free") +
+  xlab("Timepoint (hrs.post-wetup)") +
+  ylab("Normalized ASV abundance\nin total DNA (z-score)") +
+  scale_color_manual(values = cluster.pal) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        strip.text = element_text(color = "white"),
+        strip.background = element_rect(fill = "gray25"))
+
+asv.zscore.p
+```
+
+Plot phylum composition of clusters
+```{r}
+asv.phylum.p <- ord %>%
+  inner_join(tax, by = c("OTU_ID")) %>% 
+  ggplot(aes(Cluster, fill = Phylum2)) +
+  geom_bar(position = "stack")+
+  scale_fill_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:8,9,11,12)])) +
+  xlab("Temporal Cluster") +
+  ylab("# of ASVs") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank())
+
+asv.phylum.p
+```
+
+Test over/under representation of phyla in clusters
+```{r}
+class.filt <- tax %>% 
+  filter(OTU_ID %in% all.res$OTU_ID) %>% 
+  mutate(Phylum.Class = Phylum) %>% 
+  group_by(Phylum.Class) %>% 
+  mutate(ClassSize = n()) %>%
+  ungroup() %>%
+  filter(ClassSize >=10) %>% 
+  filter(Phylum.Class != "Other")
+
+class.ids <- class.filt$Phylum.Class %>% unique()
+class.universe <- class.filt$OTU_ID %>% unique()
+
+class.enrichment.list.trt <- list()
+
+for(response in unique(ord$Cluster)){
+  sig.response <- filter(ord, Cluster == response)$OTU_ID %>% unique()
+  hgt.over.list <- list()
+  hgt.under.list <- list()
+  for(class in class.ids){
+    class.members <- filter(class.filt, Phylum.Class == class)$OTU_ID
+    cluster.positive <- sum(sig.response %in% class.members)
+    universe.positive <- sum(unique(ord$OTU_ID) %in% class.members)
+    universe.negative <- sum(!unique(ord$OTU_ID) %in% class.members)
+    cluster.size<- length(sig.response)
+    hgt.over.list[[class]] <- phyper(cluster.positive, universe.positive, universe.negative, cluster.size, lower.tail = F)
+    hgt.under.list[[class]] <- phyper(cluster.positive, universe.positive, universe.negative, cluster.size, lower.tail = T)
+  }
+  hgt.over <- plyr::ldply(hgt.over.list, function(x) x)
+  names(hgt.over) <- c("Phylum.Class", "pval")
+  hgt.over <- mutate(hgt.over, Test = "Over")
+  hgt.under <- plyr::ldply(hgt.under.list, function(x) x)
+  names(hgt.under) <- c("Phylum.Class", "pval")
+  hgt.under <- mutate(hgt.under, Test = "Under")
+  hgt <- rbind(hgt.over, hgt.under)
+  class.enrichment.list.trt[[response]] <- hgt
+}
+
+class.enrichment.trt <- plyr::ldply(class.enrichment.list.trt, function(x) x) %>% 
+  dplyr::rename("Cluster" = ".id") %>% 
+  ungroup() %>% 
+  group_by(Cluster) %>% 
+  mutate(padj = p.adjust(pval)) 
+
+#Plot
+asv.hgt.p <- class.enrichment.trt %>% 
+  filter(padj < 0.05) %>% 
+  mutate(Test2 = ifelse(Test == "Over", "Overrepresentation", "Underrepresentation")) %>% 
+  ggplot(aes(Cluster, Phylum.Class, fill = Test2, shape = Test2)) +
+  geom_point(size = 3) +
+  scale_fill_manual(name = "Phylum membership\nin trend group", values = RColorBrewer::brewer.pal(3, "Set1")[c(2,1)]) +
+  scale_shape_manual(name = "Phylum membership\nin trend group", values = c(24,25)) +
+  guides(fill=guide_legend(nrow=2, byrow=TRUE)) +
+  ylab("Predicted host phylum") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_blank(),
+        legend.position = "top")
+
+asv.hgt.p
+```
+
+
+```{r}
+#520:560
+bottom <- plot_grid(asv.phylum.p, asv.hgt.p + theme(legend.title = element_blank()), labels = c("b", "c"), label_size = 15, rel_widths = c(1.5,1))
+
+plot_grid(asv.zscore.p, bottom, ncol = 1, labels = c("a", NA), label_size = 15, rel_heights = c(1, 1.5))
+```
+
+Generate supplementary table
+```{r}
+asv.supp.table <- ord %>% 
+  select(OTU_ID, Soil, Cluster) %>% 
+  inner_join(tax, by = "OTU_ID") %>% 
+  mutate(Soil = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                          Soil == "JepsonBot" ~ "Jepson Swale",
+                          Soil == "Hopland" ~ "Hopland",
+                          Soil == "McLaughlin" ~ "McLaughlin")) %>% 
+   rename("ASV_ID" = "OTU_ID") %>% 
+  select(ASV_ID : Species)
+
+write.table(asv.supp.table, "../Tables/supp_asv_temporal_groups.tsv", quote = F, sep = "\t", row.names = F)
+```
+

@@ -30,6 +30,8 @@ metadata %>%
 
 For viromes, there were two samples that were quite lower than the other ones so we are using the third lowest as a threhosld.
 ```{r}
+### These values are 
+
 thresholds <- data.frame(Set = c("Viromes", "Total MetaGs"),
                          Depth = c(43529470,98130102))
 

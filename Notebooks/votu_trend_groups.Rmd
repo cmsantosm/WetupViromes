@@ -44,6 +44,12 @@ all.res <- readRDS("../Data/rare_votu_deseq.RDS")
 all.sig <- filter(all.res, p.adjusted < 0.05)
 ```
 
+Get the number of unique differentially abundant vOTUs
+```{r}
+all.sig$OTU_ID %>% unique() %>% length()
+```
+
+
 Generate a matrix with the mean z-scored abundances of each significant OTU in its corresponding soil
 Since the Jepson DNase treated viromes couldn't be sequenced due to low DNA recovery, the abundances for that time point are imputed to be zero.
 ```{r}
@@ -110,17 +116,23 @@ ord <- ord.tmp %>%
   mutate(Cluster = case_when(Cluster == 3 ~ "vOTU trend group 1",
                              Cluster == 1 ~ "vOTU trend group 2",
                              Cluster == 2 ~ "vOTU trend group 3")) %>% 
+  mutate(ClusterAlt = case_when(Cluster == "vOTU trend group 1" ~ "Dry-dominant",
+                             Cluster == "vOTU trend group 2" ~ "Early responders",
+                             Cluster == "vOTU trend group 3" ~ "Late responders")) %>% 
   separate(OTU.Soil, c("OTU_ID", "Soil"), sep = "\\.", remove = F)
 ```
 
 Plot temporal trends of individual vOTUs
 ```{r}
+votu.zs.tidy <- zs.tidy %>% 
+  inner_join(select(ord, OTU.Soil, Cluster, ClusterAlt), by = "OTU.Soil") 
+
 votu.trend.p <- zs.tidy %>% 
-  inner_join(select(ord, OTU.Soil, Cluster), by = "OTU.Soil") %>%
+  inner_join(select(ord, OTU.Soil, Cluster, ClusterAlt), by = "OTU.Soil") %>%
   ggplot(aes(Time, MeanZS)) +
-  geom_line(aes(group = OTU.Soil, color = Cluster), alpha = 0.03) +
-  geom_line(data = . %>% group_by(Cluster, Time) %>% summarise(CMeanZS = mean(MeanZS)), aes(y = CMeanZS, group = Cluster), color = "gray15", size = 1) +
-  facet_wrap(~ Cluster, ncol = 1) +
+  geom_line(aes(group = OTU.Soil, color = ClusterAlt), alpha = 0.03) +
+  geom_line(data = . %>% group_by(ClusterAlt, Time) %>% summarise(CMeanZS = mean(MeanZS)), aes(y = CMeanZS, group = ClusterAlt), color = "gray15", size = 1) +
+  facet_wrap(~ ClusterAlt, ncol = 1) +
   xlab("Timepoint (hrs.post-wetup)") +
   ylab("vOTU abundance (z-score)") +
   scale_color_manual(values = cluster.pal[c(2,4,6)]) +
@@ -145,9 +157,9 @@ votu.trend.relab.p <- v.otu %>%
   summarise(Mean = mean(Count)) %>% 
   mutate(OTU.Soil = paste(OTU_ID, Soil, sep = ".")) %>% 
   inner_join(ord, by = "OTU.Soil") %>% 
-  group_by(Cluster, Soil2, TimeFctr, Time) %>% 
+  group_by(Cluster, ClusterAlt, Soil2, TimeFctr, Time) %>% 
   summarise(SummedMean = sum(Mean)) %>% 
-  ggplot(aes(paste(TimeFctr, " (", Time, " hrs.)", sep = ""), SummedMean, fill = Cluster)) +
+  ggplot(aes(paste(TimeFctr, " (", Time, " hrs.)", sep = ""), SummedMean, fill = ClusterAlt)) +
   geom_bar(stat = "identity") +
   scale_fill_manual(values = cluster.pal[c(2,4,6)]) +
   facet_grid(. ~ Soil2) +
@@ -174,14 +186,14 @@ multiple.soils <- ord %>%
   dplyr::count() %>% 
   ungroup()
 
-votu.trend.upset.p <- upset(fromList(list("vOTU trend group 1" = filter(multiple.soils, Cluster == "vOTU trend group 1")$OTU_ID,
-                    "vOTU trend group 2" = filter(multiple.soils, Cluster == "vOTU trend group 2")$OTU_ID,
-                    "vOTU trend group 3" = filter(multiple.soils, Cluster == "vOTU trend group 3")$OTU_ID)),
+votu.trend.upset.p <- upset(fromList(list("Dry-dominant" = filter(multiple.soils, Cluster == "vOTU trend group 1")$OTU_ID,
+                    "Early responders" = filter(multiple.soils, Cluster == "vOTU trend group 2")$OTU_ID,
+                    "Late responders" = filter(multiple.soils, Cluster == "vOTU trend group 3")$OTU_ID)),
       number.angles = 0,
       nintersects = NA,
       point.size = 3,
       line.size = 1.5,
-      sets = c("vOTU trend group 1", "vOTU trend group 2", "vOTU trend group 3"),
+      sets = c("Dry-dominant", "Early responders", "Late responders"),
       keep.order = T,
       sets.bar.color = cluster.pal[c(2,4,6)],
       set_size.show = F,
@@ -246,7 +258,7 @@ ntwk.tax.p <- nodes.filt %>%
                                  TRUE ~ "Other")) %>% 
   mutate(HostPhylum2 = fct_relevel(HostPhylum2, "Other", "Unclassified", after = Inf)) %>% 
   ggplot() +
-  #geom_line(data = edges.filt, aes(x,y, group = Pair), color = "gray25", alpha = 0.1) +
+  geom_line(data = edges.filt, aes(x,y, group = Pair), color = "gray25", alpha = 0.1) +
   geom_point(data = . %>% filter(HostPhylum2 == "Unclassified"), alpha = 0.5, aes(x,y, color = HostPhylum2)) +
   geom_point(data = . %>% filter(!is.na(HostPhylum)), alpha = 0.5, aes(x,y, color = HostPhylum2)) +
   ggforce::geom_circle(data = circle, aes(x0 = 0.5, y0 = 0.5, r = 0.55), color = "gray25", linetype = 2) +
@@ -283,6 +295,12 @@ nodes.master <- rbind(mutate(tmp.ntwk.df, Facet = "vOTU trend group 1" ),
                       mutate(tmp.ntwk.df, Facet = "vOTU trend group 3"),
                       mutate(tmp.ntwk.df, Facet = "All"))
 
+nodes.master.2 <- rbind(mutate(tmp.ntwk.df, Facet = "vOTU trend group 1" ),
+                      mutate(tmp.ntwk.df, Facet = "vOTU trend group 2"),
+                      mutate(tmp.ntwk.df, Facet = "vOTU trend group 3"),
+                      mutate(tmp.ntwk.df, Facet = "All"),
+                      mutate(tmp.ntwk.df, Facet = "All2"))
+
 edges.master <- rbind(mutate(edges.filt, Facet = "vOTU trend group 1" ),
                       mutate(edges.filt, Facet = "vOTU trend group 2"),
                       mutate(edges.filt, Facet = "vOTU trend group 3"),
@@ -313,6 +331,35 @@ votu.ntwk.p <- nodes.master %>%
 
 votu.ntwk.p
 ```
+
+Plot the host taxonomic composition of each temporal cluster
+```{r}
+ord %>% 
+  left_join(iphop.genome, by = c("OTU_ID" = "Virus")) %>% 
+  select(OTU_ID, Soil, ClusterAlt:HostSpecies) %>% 
+  gather(key = "Rank", value = "value", HostDomain:HostSpecies) %>% 
+  mutate(value = ifelse(is.na(value), "Unclassified", value)) %>% 
+  spread(key = Rank, value = value) %>% 
+  rename("vOTU_ID" = "OTU_ID",
+         "TemporalTrend" = "ClusterAlt") %>% 
+  group_by(TemporalTrend, HostPhylum) %>% 
+  count() %>% 
+  group_by(HostPhylum) %>% 
+  mutate(Total = sum(n)) %>% 
+  group_by(TemporalTrend) %>% 
+  mutate(Percent = n/sum(n)) %>% 
+  ggplot(aes(TemporalTrend, reorder(HostPhylum, Total))) +
+  geom_text(aes(label = n), size = 3) +
+  geom_tile(data = . %>% filter(HostPhylum != "Unclassified"), size = 1, aes(fill = Percent), color = "white") +
+  geom_text(aes(label = n), color = "black", size = 3) +
+  scale_fill_distiller(name = "Percent\nwithin\ngroup", palette = "Greys", direction = 1) +
+  ylab("Predicted host phylum") +
+  xlab("Temporal trend") +
+#  facet_grid(. ~ TemporalTrend) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 
 Donut plots with predicted host composition for the whole dataset and for each temporal group
 ```{r}
@@ -382,6 +429,8 @@ votu.donut.p <- tax.donut.df %>%
 
 
 votu.donut.p
+
+votu.tax.donut.df <- tax.donut.df 
 ```
 
 Generate igraph object
@@ -429,12 +478,12 @@ adj.method <- "bonferroni"
 #Get the unique set of vOTUs assigned to temporal groups. If a vOTU displayed different trends across soil types, discard
 sig.otus <- ord %>% 
   separate(OTU.Soil, c("OTU_ID", "Soil"), sep = "\\.") %>% 
-  group_by(OTU_ID, Cluster) %>% 
+  group_by(OTU_ID, ClusterAlt) %>% 
   dplyr::count() %>% 
   group_by(OTU_ID) %>% 
   mutate(Total = n()) %>% 
   filter(Total == 1) %>% 
-  mutate(Trait = Cluster,
+  mutate(Trait = ClusterAlt,
          Genome = OTU_ID)
 
 #Perform hypergeometric tests
@@ -526,8 +575,8 @@ phylum.universe <- phylum.filt$Virus %>% unique()
 
 #Run tests
 phylum.enrichment.list.trt <- list()
-for(response in unique(ord$Cluster)){
-  sig.response <- filter(ord, Cluster == response)$OTU_ID %>% unique()
+for(response in unique(ord$ClusterAlt)){
+  sig.response <- filter(ord, ClusterAlt == response)$OTU_ID %>% unique()
   hgt.over.list <- list()
   hgt.under.list <- list()
   for(class in phylum.ids){
@@ -550,16 +599,16 @@ for(response in unique(ord$Cluster)){
 }
 
 phylum.enrichment.trt <- plyr::ldply(phylum.enrichment.list.trt, function(x) x) %>% 
-  dplyr::rename("Cluster" = ".id") %>% 
+  dplyr::rename("ClusterAlt" = ".id") %>% 
   ungroup() %>% 
-  group_by(Cluster) %>% 
+  group_by(ClusterAlt) %>% 
   mutate(padj = p.adjust(pval)) 
 
 #Plot
 votu.phy.hgt.p <- phylum.enrichment.trt %>% 
   filter(padj < 0.05) %>% 
   mutate(Test2 = ifelse(Test == "Over", "Overrepresentation", "Underrepresentation")) %>% 
-  ggplot(aes(Cluster, Class, fill = Test2, shape = Test2)) +
+  ggplot(aes(ClusterAlt, Class, fill = Test2, shape = Test2)) +
   geom_point(size = 5) +
   scale_fill_manual(name = "Phylum membership\nin trend group", values = RColorBrewer::brewer.pal(3, "Set1")[c(2,1)]) +
   scale_shape_manual(name = "Phylum membership\nin trend group", values = c(24,25)) +
@@ -579,5 +628,23 @@ bottom <- plot_grid(ntwk.tax.p + theme(legend.position = "right"), votu.phy.hgt.
 
 #708:658
 plot_grid(safe.p, bottom, ncol = 1, rel_heights = c(2,1.5), labels = c("a", NA), label_size = 15)
+```
+
+
+```{r}
+votu.stats <- read.table("../Tables/supp_votu_stats.tsv", header = T, sep = "\t")
+votu.stats
+
+votu.supp.table <- ord %>% 
+  inner_join(votu.stats, by = c("OTU_ID" = "vOTU_ID")) %>% 
+  select(OTU_ID, Soil, ClusterAlt, ViralOrder:HostSpecies) %>% 
+  mutate(Soil = case_when(Soil == "JepsonTop" ~ "Jepson Mound",
+                          Soil == "JepsonBot" ~ "Jepson Swale",
+                          Soil == "Hopland" ~ "Hopland",
+                          Soil == "McLaughlin" ~ "McLaughlin")) %>% 
+   rename("vOTU_ID" = "OTU_ID") %>% 
+  rename("Cluster" = "ClusterAlt")
+
+write.table(votu.supp.table, "../Tables/supp_votu_temporal_groups.tsv", quote = F, sep = "\t", row.names = F)
 ```
 

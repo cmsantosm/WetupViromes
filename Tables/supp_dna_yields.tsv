@@ -1,0 +1,241 @@
+SampleID	Profile	Soil	Status	hrs_post_wetup	DNA_yield
+WUA_VD01	+DNase Virome	Jepson Mound	Dry	0	0
+WUA_VD02	+DNase Virome	Jepson Mound	Dry	0	0
+WUA_VD03	+DNase Virome	Jepson Mound	Dry	0	0
+WUA_VD04	+DNase Virome	Jepson Swale	Dry	0	0
+WUA_VD05	+DNase Virome	Jepson Swale	Dry	0	0
+WUA_VD06	+DNase Virome	Jepson Swale	Dry	0	0
+WUA_VD19	+DNase Virome	Jepson Mound	Wet	24	0.3195
+WUA_VD20	+DNase Virome	Jepson Mound	Wet	24	0.365
+WUA_VD21	+DNase Virome	Jepson Mound	Wet	24	0.393
+WUA_VD22	+DNase Virome	Jepson Swale	Wet	24	0.111
+WUA_VD23	+DNase Virome	Jepson Swale	Wet	24	0.107
+WUA_VD24	+DNase Virome	Jepson Swale	Wet	24	0.1175
+WUA_VD25	+DNase Virome	Jepson Mound	Wet	48	0.295
+WUA_VD26	+DNase Virome	Jepson Mound	Wet	48	0.271
+WUA_VD27	+DNase Virome	Jepson Mound	Wet	48	0.306
+WUA_VD28	+DNase Virome	Jepson Swale	Wet	48	0.143
+WUA_VD29	+DNase Virome	Jepson Swale	Wet	48	0.102
+WUA_VD30	+DNase Virome	Jepson Swale	Wet	48	0.177
+WUA_VD31	+DNase Virome	Jepson Mound	Wet	72	0.5115
+WUA_VD32	+DNase Virome	Jepson Mound	Wet	72	0.3735
+WUA_VD33	+DNase Virome	Jepson Mound	Wet	72	0.3655
+WUA_VD34	+DNase Virome	Jepson Swale	Wet	72	0.2075
+WUA_VD35	+DNase Virome	Jepson Swale	Wet	72	0.1745
+WUA_VD36	+DNase Virome	Jepson Swale	Wet	72	0.217
+WUA_VD37	+DNase Virome	Jepson Mound	Wet	120	0.497
+WUA_VD38	+DNase Virome	Jepson Mound	Wet	120	0.4365
+WUA_VD39	+DNase Virome	Jepson Mound	Wet	120	0.3785
+WUA_VD40	+DNase Virome	Jepson Swale	Wet	120	0.2155
+WUA_VD41	+DNase Virome	Jepson Swale	Wet	120	0.2285
+WUA_VD42	+DNase Virome	Jepson Swale	Wet	120	0.2225
+WUA_VD43	+DNase Virome	Jepson Mound	Wet	168	0.412
+WUA_VD44	+DNase Virome	Jepson Mound	Wet	168	0.302
+WUA_VD45	+DNase Virome	Jepson Mound	Wet	168	0.356
+WUA_VD46	+DNase Virome	Jepson Swale	Wet	168	0.2355
+WUA_VD47	+DNase Virome	Jepson Swale	Wet	168	0.15
+WUA_VD48	+DNase Virome	Jepson Swale	Wet	168	0.192
+WUA_VD49	+DNase Virome	Jepson Mound	Wet	240	0.501
+WUA_VD50	+DNase Virome	Jepson Mound	Wet	240	0.582
+WUA_VD51	+DNase Virome	Jepson Mound	Wet	240	0.4255
+WUA_VD52	+DNase Virome	Jepson Swale	Wet	240	0.2535
+WUA_VD53	+DNase Virome	Jepson Swale	Wet	240	0.261
+WUA_VD54	+DNase Virome	Jepson Swale	Wet	240	0.283
+WUA_VD55	+DNase Virome	Jepson Mound	Dry	240	0
+WUA_VD56	+DNase Virome	Jepson Mound	Dry	240	0
+WUA_VD57	+DNase Virome	Jepson Mound	Dry	240	0
+WUA_VD58	+DNase Virome	Jepson Swale	Dry	240	0
+WUA_VD59	+DNase Virome	Jepson Swale	Dry	240	0
+WUA_VD60	+DNase Virome	Jepson Swale	Dry	240	0
+WUB_VD01	+DNase Virome	Hopland	Dry	0	0.139
+WUB_VD02	+DNase Virome	Hopland	Dry	0	0.171
+WUB_VD03	+DNase Virome	Hopland	Dry	0	0.1575
+WUB_VD04	+DNase Virome	McLaughlin	Dry	0	0.1575
+WUB_VD05	+DNase Virome	McLaughlin	Dry	0	0.1335
+WUB_VD06	+DNase Virome	McLaughlin	Dry	0	0.098
+WUB_VD07	+DNase Virome	Hopland	Wet	24	0.6305
+WUB_VD08	+DNase Virome	Hopland	Wet	24	0.6115
+WUB_VD09	+DNase Virome	Hopland	Wet	24	0.636
+WUB_VD10	+DNase Virome	McLaughlin	Wet	24	0.6245
+WUB_VD11	+DNase Virome	McLaughlin	Wet	24	0.706
+WUB_VD12	+DNase Virome	McLaughlin	Wet	24	0.66
+WUB_VD13	+DNase Virome	Hopland	Wet	48	0.6845
+WUB_VD14	+DNase Virome	Hopland	Wet	48	0.6865
+WUB_VD15	+DNase Virome	Hopland	Wet	48	0.605
+WUB_VD16	+DNase Virome	McLaughlin	Wet	48	0.5405
+WUB_VD17	+DNase Virome	McLaughlin	Wet	48	0.5665
+WUB_VD18	+DNase Virome	McLaughlin	Wet	48	0.6705
+WUB_VD19	+DNase Virome	Hopland	Wet	72	0.5185
+WUB_VD20	+DNase Virome	Hopland	Wet	72	0.594
+WUB_VD21	+DNase Virome	Hopland	Wet	72	0.6355
+WUB_VD22	+DNase Virome	McLaughlin	Wet	72	0.5475
+WUB_VD23	+DNase Virome	McLaughlin	Wet	72	0.5755
+WUB_VD24	+DNase Virome	McLaughlin	Wet	72	0.4255
+WUB_VD25	+DNase Virome	Hopland	Wet	120	0.584
+WUB_VD26	+DNase Virome	Hopland	Wet	120	0.6745
+WUB_VD27	+DNase Virome	Hopland	Wet	120	0.697
+WUB_VD28	+DNase Virome	McLaughlin	Wet	120	0.5355
+WUB_VD29	+DNase Virome	McLaughlin	Wet	120	0.4885
+WUB_VD30	+DNase Virome	McLaughlin	Wet	120	0.445
+WUB_VD31	+DNase Virome	Hopland	Wet	168	0.7395
+WUB_VD32	+DNase Virome	Hopland	Wet	168	0.671
+WUB_VD33	+DNase Virome	Hopland	Wet	168	0.6825
+WUB_VD34	+DNase Virome	McLaughlin	Wet	168	0.462
+WUB_VD35	+DNase Virome	McLaughlin	Wet	168	0.473
+WUB_VD36	+DNase Virome	McLaughlin	Wet	168	0.5965
+WUB_VD37	+DNase Virome	Hopland	Wet	240	0.8435
+WUB_VD38	+DNase Virome	Hopland	Wet	240	0.857
+WUB_VD39	+DNase Virome	Hopland	Wet	240	0.7035
+WUB_VD40	+DNase Virome	McLaughlin	Wet	240	0.6325
+WUB_VD41	+DNase Virome	McLaughlin	Wet	240	0.6095
+WUB_VD42	+DNase Virome	McLaughlin	Wet	240	0.505
+WUB_VD43	+DNase Virome	Hopland	Dry	240	0.1145
+WUB_VD44	+DNase Virome	Hopland	Dry	240	0.0965
+WUB_VD45	+DNase Virome	Hopland	Dry	240	0.108
+WUB_VD46	+DNase Virome	McLaughlin	Dry	240	0.073
+WUB_VD47	+DNase Virome	McLaughlin	Dry	240	0.0785
+WUB_VD48	+DNase Virome	McLaughlin	Dry	240	0.0775
+WUA_VN01	Untreated Virome	Jepson Mound	Dry	0	5.98
+WUA_VN02	Untreated Virome	Jepson Mound	Dry	0	5.85
+WUA_VN03	Untreated Virome	Jepson Mound	Dry	0	6.045
+WUA_VN04	Untreated Virome	Jepson Swale	Dry	0	3.3
+WUA_VN05	Untreated Virome	Jepson Swale	Dry	0	1.78
+WUA_VN06	Untreated Virome	Jepson Swale	Dry	0	1.64
+WUA_VN19	Untreated Virome	Jepson Mound	Wet	24	1.795
+WUA_VN20	Untreated Virome	Jepson Mound	Wet	24	1.43
+WUA_VN21	Untreated Virome	Jepson Mound	Wet	24	1.26
+WUA_VN22	Untreated Virome	Jepson Swale	Wet	24	1.4
+WUA_VN23	Untreated Virome	Jepson Swale	Wet	24	1.275
+WUA_VN24	Untreated Virome	Jepson Swale	Wet	24	1.22
+WUA_VN25	Untreated Virome	Jepson Mound	Wet	48	1.205
+WUA_VN26	Untreated Virome	Jepson Mound	Wet	48	1.62
+WUA_VN27	Untreated Virome	Jepson Mound	Wet	48	1.495
+WUA_VN28	Untreated Virome	Jepson Swale	Wet	48	1.59
+WUA_VN29	Untreated Virome	Jepson Swale	Wet	48	1.645
+WUA_VN30	Untreated Virome	Jepson Swale	Wet	48	1.56
+WUA_VN31	Untreated Virome	Jepson Mound	Wet	72	1.515
+WUA_VN32	Untreated Virome	Jepson Mound	Wet	72	1.635
+WUA_VN33	Untreated Virome	Jepson Mound	Wet	72	1.59
+WUA_VN34	Untreated Virome	Jepson Swale	Wet	72	1.36
+WUA_VN35	Untreated Virome	Jepson Swale	Wet	72	1.7
+WUA_VN36	Untreated Virome	Jepson Swale	Wet	72	1.875
+WUA_VN37	Untreated Virome	Jepson Mound	Wet	120	1.535
+WUA_VN38	Untreated Virome	Jepson Mound	Wet	120	1.61
+WUA_VN39	Untreated Virome	Jepson Mound	Wet	120	1.45
+WUA_VN40	Untreated Virome	Jepson Swale	Wet	120	1.74
+WUA_VN41	Untreated Virome	Jepson Swale	Wet	120	1.755
+WUA_VN42	Untreated Virome	Jepson Swale	Wet	120	1.73
+WUA_VN43	Untreated Virome	Jepson Mound	Wet	168	2.02
+WUA_VN44	Untreated Virome	Jepson Mound	Wet	168	1.83
+WUA_VN45	Untreated Virome	Jepson Mound	Wet	168	1.675
+WUA_VN46	Untreated Virome	Jepson Swale	Wet	168	2.47
+WUA_VN47	Untreated Virome	Jepson Swale	Wet	168	2.84
+WUA_VN48	Untreated Virome	Jepson Swale	Wet	168	1.69
+WUA_VN49	Untreated Virome	Jepson Mound	Wet	240	1.815
+WUA_VN50	Untreated Virome	Jepson Mound	Wet	240	1.605
+WUA_VN51	Untreated Virome	Jepson Mound	Wet	240	1.59
+WUA_VN52	Untreated Virome	Jepson Swale	Wet	240	2.855
+WUA_VN53	Untreated Virome	Jepson Swale	Wet	240	2.56
+WUA_VN54	Untreated Virome	Jepson Swale	Wet	240	1.585
+WUA_VN55	Untreated Virome	Jepson Mound	Dry	240	4.57
+WUA_VN56	Untreated Virome	Jepson Mound	Dry	240	3.375
+WUA_VN57	Untreated Virome	Jepson Mound	Dry	240	2.7
+WUA_VN58	Untreated Virome	Jepson Swale	Dry	240	1.595
+WUA_VN59	Untreated Virome	Jepson Swale	Dry	240	1.53
+WUA_VN60	Untreated Virome	Jepson Swale	Dry	240	1.315
+WUB_VN01	Untreated Virome	Hopland	Dry	0	3.905
+WUB_VN02	Untreated Virome	Hopland	Dry	0	3.87
+WUB_VN03	Untreated Virome	Hopland	Dry	0	3.91
+WUB_VN04	Untreated Virome	McLaughlin	Dry	0	2.73
+WUB_VN05	Untreated Virome	McLaughlin	Dry	0	2.88
+WUB_VN06	Untreated Virome	McLaughlin	Dry	0	3.63
+WUB_VN07	Untreated Virome	Hopland	Wet	24	1.715
+WUB_VN08	Untreated Virome	Hopland	Wet	24	1.345
+WUB_VN09	Untreated Virome	Hopland	Wet	24	1.37
+WUB_VN10	Untreated Virome	McLaughlin	Wet	24	1.48
+WUB_VN11	Untreated Virome	McLaughlin	Wet	24	2.085
+WUB_VN12	Untreated Virome	McLaughlin	Wet	24	2.13
+WUA_TM01	Total MetaG	Jepson Mound	Dry	0	35.55
+WUA_TM02	Total MetaG	Jepson Mound	Dry	0	35.1
+WUA_TM03	Total MetaG	Jepson Mound	Dry	0	41
+WUA_TM04	Total MetaG	Jepson Swale	Dry	0	34.75
+WUA_TM05	Total MetaG	Jepson Swale	Dry	0	38.4
+WUA_TM06	Total MetaG	Jepson Swale	Dry	0	38.5
+WUA_TM19	Total MetaG	Jepson Mound	Wet	24	42.65
+WUA_TM20	Total MetaG	Jepson Mound	Wet	24	39.05
+WUA_TM21	Total MetaG	Jepson Mound	Wet	24	47.6
+WUA_TM22	Total MetaG	Jepson Swale	Wet	24	31.9
+WUA_TM23	Total MetaG	Jepson Swale	Wet	24	30.15
+WUA_TM24	Total MetaG	Jepson Swale	Wet	24	32.55
+WUA_TM25	Total MetaG	Jepson Mound	Wet	48	42.25
+WUA_TM26	Total MetaG	Jepson Mound	Wet	48	46.65
+WUA_TM27	Total MetaG	Jepson Mound	Wet	48	45.2
+WUA_TM28	Total MetaG	Jepson Swale	Wet	48	41.75
+WUA_TM29	Total MetaG	Jepson Swale	Wet	48	40.55
+WUA_TM30	Total MetaG	Jepson Swale	Wet	48	39.95
+WUA_TM31	Total MetaG	Jepson Mound	Wet	72	46.3
+WUA_TM32	Total MetaG	Jepson Mound	Wet	72	52.5
+WUA_TM33	Total MetaG	Jepson Mound	Wet	72	34.6
+WUA_TM34	Total MetaG	Jepson Swale	Wet	72	31.8
+WUA_TM35	Total MetaG	Jepson Swale	Wet	72	48.3
+WUA_TM36	Total MetaG	Jepson Swale	Wet	72	34.4
+WUA_TM37	Total MetaG	Jepson Mound	Wet	120	36.2
+WUA_TM38	Total MetaG	Jepson Mound	Wet	120	53
+WUA_TM39	Total MetaG	Jepson Mound	Wet	120	44
+WUA_TM40	Total MetaG	Jepson Swale	Wet	120	39
+WUA_TM41	Total MetaG	Jepson Swale	Wet	120	32.35
+WUA_TM42	Total MetaG	Jepson Swale	Wet	120	36.25
+WUA_TM43	Total MetaG	Jepson Mound	Wet	168	32.4
+WUA_TM44	Total MetaG	Jepson Mound	Wet	168	46.4
+WUA_TM45	Total MetaG	Jepson Mound	Wet	168	39.3
+WUA_TM46	Total MetaG	Jepson Swale	Wet	168	39.25
+WUA_TM47	Total MetaG	Jepson Swale	Wet	168	33.65
+WUA_TM48	Total MetaG	Jepson Swale	Wet	168	38.55
+WUA_TM49	Total MetaG	Jepson Mound	Wet	240	31.6
+WUA_TM50	Total MetaG	Jepson Mound	Wet	240	41.45
+WUA_TM51	Total MetaG	Jepson Mound	Wet	240	39.2
+WUA_TM52	Total MetaG	Jepson Swale	Wet	240	29.35
+WUA_TM53	Total MetaG	Jepson Swale	Wet	240	32
+WUA_TM54	Total MetaG	Jepson Swale	Wet	240	29.45
+WUB_TM01	Total MetaG	Hopland	Dry	0	19.55
+WUB_TM02	Total MetaG	Hopland	Dry	0	34.85
+WUB_TM03	Total MetaG	Hopland	Dry	0	26.2
+WUB_TM04	Total MetaG	McLaughlin	Dry	0	45.2
+WUB_TM05	Total MetaG	McLaughlin	Dry	0	37.55
+WUB_TM06	Total MetaG	McLaughlin	Dry	0	21.9
+WUB_TM07	Total MetaG	Hopland	Wet	24	49.75
+WUB_TM08	Total MetaG	Hopland	Wet	24	36.05
+WUB_TM09	Total MetaG	Hopland	Wet	24	44.6
+WUB_TM10	Total MetaG	McLaughlin	Wet	24	51.5
+WUB_TM11	Total MetaG	McLaughlin	Wet	24	36.05
+WUB_TM12	Total MetaG	McLaughlin	Wet	24	43.55
+WUB_TM13	Total MetaG	Hopland	Wet	48	45.95
+WUB_TM14	Total MetaG	Hopland	Wet	48	33.1
+WUB_TM15	Total MetaG	Hopland	Wet	48	57
+WUB_TM16	Total MetaG	McLaughlin	Wet	48	48.65
+WUB_TM17	Total MetaG	McLaughlin	Wet	48	30.6
+WUB_TM18	Total MetaG	McLaughlin	Wet	48	41.55
+WUB_TM19	Total MetaG	Hopland	Wet	72	48.05
+WUB_TM20	Total MetaG	Hopland	Wet	72	52
+WUB_TM21	Total MetaG	Hopland	Wet	72	44.1
+WUB_TM22	Total MetaG	McLaughlin	Wet	72	34.95
+WUB_TM23	Total MetaG	McLaughlin	Wet	72	47.45
+WUB_TM24	Total MetaG	McLaughlin	Wet	72	49
+WUB_TM25	Total MetaG	Hopland	Wet	120	42.05
+WUB_TM26	Total MetaG	Hopland	Wet	120	44.55
+WUB_TM27	Total MetaG	Hopland	Wet	120	42.9
+WUB_TM28	Total MetaG	McLaughlin	Wet	120	40.9
+WUB_TM29	Total MetaG	McLaughlin	Wet	120	49.25
+WUB_TM30	Total MetaG	McLaughlin	Wet	120	42.15
+WUB_TM31	Total MetaG	Hopland	Wet	168	45.8
+WUB_TM32	Total MetaG	Hopland	Wet	168	43.3
+WUB_TM33	Total MetaG	Hopland	Wet	168	42.5
+WUB_TM34	Total MetaG	McLaughlin	Wet	168	40.75
+WUB_TM35	Total MetaG	McLaughlin	Wet	168	56.5
+WUB_TM36	Total MetaG	McLaughlin	Wet	168	38.85
+WUB_TM37	Total MetaG	Hopland	Wet	240	41.15
+WUB_TM38	Total MetaG	Hopland	Wet	240	39.65
+WUB_TM39	Total MetaG	Hopland	Wet	240	48.85
+WUB_TM40	Total MetaG	McLaughlin	Wet	240	45.9
+WUB_TM41	Total MetaG	McLaughlin	Wet	240	43.35
+WUB_TM42	Total MetaG	McLaughlin	Wet	240	50.45

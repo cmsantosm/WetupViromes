@@ -2,6 +2,7 @@ Load library
 ```{r}
 source("../General/general_functions.R")
 library(cowplot)
+library(eulerr)
 library(tidyverse)
 ```
 
@@ -13,25 +14,50 @@ otu <- otu[rowSums(otu>0) > 1,]
 
 map <- readRDS("../Data/wetup_map.RDS")
 
-annotation <- readRDS("../Data/vibrant_annotation.RDS")
+annotation <- readRDS("../Data/vibrant_annotation.RDS") %>% filter(OTU_ID %in% row.names(otu))
+
+vibrant.quality <- readRDS("../Data/vibrant_quality.RDS")
 ```
 
-Identify integrases and excisionases in VIBRANT annotation
+Identify integrases, excisionases, and integrated prophages in VIBRANT annotation
 ```{r}
-annotation %>% filter(str_detect(Name, "[I|i]ntegrase"))
-annotation %>% filter(str_detect(Name, "[E|e]xcisionase"))
+annotation <- annotation %>% 
+  mutate(Integrase = str_detect(Name, "[I|i]ntegrase"),
+         Excisionase = str_detect(Name, "[E|e]xcisionase"),
+         Prophage = str_detect(OTU_ID, "fragment")) %>% 
+  mutate(Temperate = Integrase | Excisionase | Prophage)
 
-annotation <- annotation %>% mutate(Lysogeny_genes = str_detect(Name, "[I|i]ntegrase") | str_detect(Name, "[E|e]xcisionase"))
-
-#Get vOTUs with at least one of these two genes
+#Get vOTUs with at least one of these three attributes
 lysogen.df <- annotation %>% 
-  filter(Lysogeny_genes) %>% 
+  filter(Temperate) %>% 
   group_by(OTU_ID) %>% 
   count() %>% 
   ungroup() %>% 
   select(-n) %>% 
-  mutate(PredictedLysogen = TRUE)
+  mutate(PredictedLysogen = TRUE) 
+
+
+lysogen.df
+
+integrase.id <- filter(annotation, Integrase)$OTU_ID %>% unique()
+excisionase.id <- filter(annotation, Excisionase)$OTU_ID %>% unique()
+prophage.id <- filter(annotation, Prophage)$OTU_ID %>% unique()
+
+temperate.pal <- RColorBrewer::brewer.pal(3, "Set2")
+
+a <- plot(euler(list("Integrase" = integrase.id, "Excisionase" = excisionase.id, "Prophage" = prophage.id)),
+     fills = "white",
+     edges = list(col = temperate.pal, lex = 5),
+     labels = list(fontfamily = "Helvetica",
+                   col = temperate.pal,
+                   cex = 1), 
+     quantities = list(fontfamily = "Helvetica",
+                    col = c("black", "black", "black"),
+                   cex = 1))
+
+a
 ```
+
 
 Generate a data frame with the aggreaged abundances of phages predicted to be temperate
 ```{r}
@@ -56,7 +82,7 @@ lysogen.ab <- otu %>%
 Plot
 ```{r}
 #Abundances
-a <- lysogen.ab %>% 
+b <- lysogen.ab %>% 
   ggplot(aes(Time, TotalAb, color = PredictedLysogen)) +
   geom_point(alpha = 0.8) +
   geom_line(data = . %>% group_by(Soil2, Profile2, Time, PredictedLysogen) %>% summarise(Mean = mean(TotalAb)), aes(y = Mean)) +
@@ -70,7 +96,7 @@ a <- lysogen.ab %>%
         axis.text.x = element_text(angle = 45, hjust = 1))
 
 #Fraction of detected vOTUs
-b <- lysogen.ab %>% 
+c <- lysogen.ab %>% 
   ggplot(aes(Time, Percentage, color = PredictedLysogen)) +
   geom_point(alpha = 0.8) +
   geom_line(data = . %>% group_by(Soil2, Profile2, Time, PredictedLysogen) %>% summarise(Mean = mean(Percentage)), aes(y = Mean)) +
@@ -83,19 +109,32 @@ b <- lysogen.ab %>%
   theme(text = element_text(size = 12),
         axis.text.x = element_text(angle = 45, hjust = 1))
 
-left <- plot_grid(a + theme(legend.position = "none"),
-                  b + theme(legend.position = "none"),
+left <- plot_grid(b + theme(legend.position = "none"),
+                  c + theme(legend.position = "none"),
                   ncol = 1,
                   align = "hv", axis = "lrbt",
-                  labels = c("a", "b"), label_size = 15)
+                  labels = c("b", "c"), label_size = 15)
 
 #725:465
-plot_grid(left, get_legend(a), rel_widths = c(5,1))
+bottom <- plot_grid(left, get_legend(b), rel_widths = c(5,1))
+
+plot_grid(a, bottom, ncol = 1, rel_heights = c(1,2.5), labels = c("a", NA), label_size = 15)
 ```
 stats
 ```{r}
 lysogen.ab %>% 
   group_by(PredictedLysogen) %>% 
   summarise(MeanPercentage = mean(Percentage),
-            MeanRelAb = mean(TotalAb))
+            MeanRelAb = mean(TotalAb),
+            MinPercentage = min(Percentage),
+            MinRelAb = min(TotalAb),
+            MaxPercentage = max(Percentage),
+            MaxRelAb = max(TotalAb))
+
+table(row.names(otu) %in% lysogen.df$OTU_ID) / nrow(otu)
 ```
+
+```{r}
+saveRDS(lysogen.df, "../Data/predicted_temperate.RDS")
+```
+

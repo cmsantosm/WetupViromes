@@ -128,11 +128,34 @@ fraction.vdvn.p <- yields %>%
 plot_grid(yield.vdvn.p, fraction.vdvn.p, ncol = 1, align = "v", axis = "lr", labels = c("a", "b"), label_size = 15, rel_heights = c(1,1.25))
 ```
 
+Contributions of MAGs detected in DNase-treated viromes to untreated profiles
+```{r}
+vd.map <- filter(map, Profile == "ViromeD")
+vd.otu <- otu[,colnames(otu) %in% vd.map$SampleID]
+vd.otu <- vd.otu[rowSums(vd.otu)>0,]
+vd.ids <- row.names(vd.otu)
+
+otu %>% 
+  rel_ab() %>% 
+  tidy_otu() %>% 
+  mutate(VD = ifelse(OTU_ID %in% vd.ids, "Detected", "Not detected")) %>% 
+  group_by(SampleID, VD) %>% 
+  summarise(TotAb = sum(Count)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "ViromeN") %>% 
+  arrange(TotAb) %>% 
+  ggplot(aes(Replicate, TotAb, fill = VD)) +
+  geom_bar(stat = "identity") +
+  facet_grid(Soil ~ TimeFctr + Status)
+```
+
+
 MAG richness in untreated viromes
 ```{r}
 #Plot
 b <- otu %>% 
   tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
   group_by(SampleID) %>% 
   summarise(Richness = sum(Count>0)) %>% 
   inner_join(map, by = "SampleID") %>% 
@@ -161,6 +184,7 @@ Bray-Curtis similarity analysis
 tm.vn.map <- filter(map, Profile != "ViromeD")
 tm.vn.otu <- otu[,match(tm.vn.map$SampleID, colnames(otu))]
 tm.vn.otu <- tm.vn.otu[,colSums(tm.vn.otu)>0]
+tm.vn.otu <- tm.vn.otu[!rownames(tm.vn.otu) %in% vd.ids,]
 tm.vn.otu.norm <- tm.vn.otu %>% rel_ab() %>% log_norm()
 tm.vn.dist <- beta_div_dist(tm.vn.otu.norm)
 
@@ -191,7 +215,7 @@ c <- tm.vn.dist.tidy %>%
   geom_line(data = . %>% group_by(Soil2.x, Time.x) %>% summarise(MeanSim = mean(Similarity)), aes(y = MeanSim), , size = 0.75, alpha = 1) +
   scale_color_manual(values = soil.pal) +
   xlab("Time point\n(hrs. after wetup)") +
-  ylab("Bray-Curtis similarity\n(TMG vs -DNase Virome)") +
+  ylab("Bray-Curtis similarity\n(untrt. virome vs total mg)") +
   theme_bw() +
   theme(text = element_text(size = text.size),
         axis.text.x = element_text(angle = 45, hjust = 1),
@@ -209,6 +233,7 @@ Jaccard index analysis
 vn.map <- filter(map, Profile == "ViromeN")
 vn.otu <- otu[,match(vn.map$SampleID, colnames(otu))]
 vn.otu <- vn.otu[,colSums(vn.otu)>0]
+vn.otu <- vn.otu[!row.names(vn.otu) %in% vd.ids,]
 vn.jac <- beta_div_dist(vn.otu, method = "jaccard")
 
 #Reformat matrix into long format data frame
@@ -231,7 +256,9 @@ vn.jac.p <- vn.jac.tidy %>%
   #filter(Status.x == "Wet") %>% 
   filter(str_detect(Soil2.x, "Jepson")) %>% 
   mutate(Similarity = 1 - Dissimilarity) %>% 
-  ggplot(aes(TimeFctr.x, TimeFctr.y, fill = Similarity)) +
+  group_by(TimeFctr.x, TimeFctr.y, Soil2.x) %>% 
+  summarise(MeanSimilarity = mean(Similarity)) %>% 
+  ggplot(aes(TimeFctr.x, TimeFctr.y, fill = MeanSimilarity)) +
   geom_tile() +
   scale_fill_viridis_c(name = "Jaccard\nsimilarity", direction = -1, option = "A") +
   facet_grid(. ~ Soil2.x) +
@@ -248,12 +275,52 @@ vn.jac.p <- vn.jac.tidy %>%
 vn.jac.p
 ```
 
+```{r}
+vn.dist <- beta_div_dist(vn.otu %>% rel_ab() %>% log_norm())
+
+vn.dist.tidy <- vn.dist %>% 
+  as.data.frame() %>% 
+  mutate(SampleID.x = row.names(.)) %>% 
+  gather(key = "SampleID.y", value = "Dissimilarity", -SampleID.x) %>% 
+  inner_join(map, by = c("SampleID.x" = "SampleID")) %>% 
+  inner_join(map, by = c("SampleID.y" = "SampleID")) 
+
+vn.dist.decay.p <- vn.dist.tidy %>% 
+  filter(Dissimilarity > 0) %>% 
+  filter(!is.na(Dissimilarity)) %>% 
+  filter(Profile.x == Profile.y) %>% 
+  filter(Soil.x == Soil.y) %>% 
+  #filter(Status.x == Status.y) %>% 
+  filter(!(Status.x == "Dry" & TimeFctr.x == "T6")) %>%
+  filter(!(Status.y == "Dry" & TimeFctr.y == "T6")) %>%
+  filter(Status.x == "Wet") %>% 
+  filter(Status.y == "Wet") %>% 
+  filter(str_detect(Soil2.x, "Jepson")) %>% 
+  mutate(Similarity = 1 - Dissimilarity) %>% 
+  mutate(TemporalDistance = abs(Time.x - Time.y)) %>% 
+  ggplot(aes(TemporalDistance, Similarity)) +
+  geom_point(color = profile.pal[2], alpha = 0.5) +
+  geom_smooth(method = "lm", se = F, color = profile.pal[2]) +
+  facet_grid(. ~Soil2.x)  +
+  xlab("Distance between time points (hrs.)") +
+  ylab("Bray-Curtis similarity") +
+  theme_bw() +
+  theme(text = element_text(size = 12),
+        axis.text.x = element_text(angle =45, hjust = 1))
+
+vn.dist.decay.p
+```
+
+
 Taxonomic bar plots displaying differences between total DNA and virome DNA pools
 ```{r}
 # Plot
 d <- otu %>% 
-  rel_ab() %>% 
+  #rel_ab() %>% 
   tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(Count = Count/sum(Count)) %>% 
   inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
   group_by(SampleID, Phylum2, Phylum) %>% 
   summarise(RelAb = sum(Count)) %>% 
@@ -264,9 +331,11 @@ d <- otu %>%
   filter(str_detect(Soil, "Jepson")) %>% 
   group_by(Profile, Profile2, Soil, Soil2, TimeFctr, Time, Status, Phylum2, Phylum) %>% 
   summarise(MeanRelAb = mean(RelAb)) %>% 
+  #filter(Phylum == "Actinobacteriota") %>% 
   ggplot(aes(paste(TimeFctr, " (", Time, " hrs.)", sep = ""), MeanRelAb, fill = Phylum2)) +
-  geom_bar(stat = "identity", position = "fill") +
-  scale_fill_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:9,11,12)])) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:9,11,12)]),
+                    breaks = levels(tax$Phylum2)) +
   ylab("Relative abundance") +
   xlab("Time point (hrs. after wetup)") +
   facet_grid(~ Soil2 + Profile2, scales = "free", space = "free") +
@@ -275,6 +344,307 @@ d <- otu %>%
         axis.text.x = element_text(angle = 45, hjust = 1))
 
 d
+```
+
+```{r}
+otu %>% 
+  rel_ab() %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(RelAb = sum(Count)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  # group_by(Profile, Profile2, Soil, Soil2, TimeFctr, Time, Status, Phylum2, Phylum) %>% 
+  # summarise(MeanRelAb = mean(RelAb)) %>% 
+  #filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
+  ggplot(aes(Time, RelAb, color = Profile2)) +
+  geom_point() +
+  ylab("Relative abundance") +
+  xlab("Time point (hrs. after wetup)") +
+  facet_grid(Phylum2 ~ Soil2, scales = "free") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
+  ggplot(aes(Time, ZS, color = Phylum2)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Time, Phylum2, Profile2, Soil2) %>% summarise(MeanZS = mean(ZS)), aes(y = MeanZS, group = Phylum2), size = 0.75, alpha = 1) +
+  scale_color_manual(name = "Profile", values = profile.pal[c(2,3)]) +
+  ylab("Abundance (z-score)") +
+  xlab("Time point (hrs. after wetup)") +
+#  facet_grid(Phylum2 ~ Soil2, scales = "free", space = "free") +
+  facet_wrap(~ Soil2 + Profile2, scales = "free", nrow = 1) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+```
+
+
+
+```{r}
+phyla.zs.p <- otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  ungroup() %>% 
+  filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
+  mutate(Profile2 = ifelse(Profile2 == "Untreated Virome", "Untreated\nVirome", "Total\nMetaG")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "Untreated\nVirome")) %>% 
+  ggplot(aes(Time, ZS, color = Profile2)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Time, Phylum2, Profile2, Soil2) %>% summarise(MeanZS = mean(ZS)), aes(y = MeanZS, group = Profile2),size = 0.75, alpha = 1) +
+  scale_color_manual(name = "Profile", values = profile.pal[c(2,3)]) +
+  ylab("Relative abundance\n(z-score)") +
+  xlab("Time point (hrs. after wetup)") +
+  facet_grid(. ~ Soil2 + Phylum2, scales = "free") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = c(0.2,0.7),
+        legend.title = element_blank())
+
+
+phyla.zs.p
+
+phyla.ra.p <- otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  ungroup() %>% 
+  filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
+  mutate(Profile2 = ifelse(Profile2 == "Untreated Virome", "Untreated\nVirome", "Total\nMetaG")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "Untreated\nVirome")) %>% 
+  ggplot(aes(Time, TotRelAb, color = Profile2)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Time, Phylum2, Profile2, Soil2) %>% summarise(MeanRelAb = mean(TotRelAb)), aes(y = MeanRelAb, group = Profile2), size = 0.75, alpha = 1) +
+  scale_color_manual(name = "Profile", values = profile.pal[c(2,3)]) +
+  ylab("Relative abundance") +
+  xlab("Time point (hrs. after wetup)") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  facet_wrap(~ Soil2 + Phylum2, scales = "free", nrow = 1) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = c(0.2,0.7),
+        legend.title = element_blank())
+
+
+phyla.ra.p
+```
+
+```{r}
+otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  ungroup() %>% 
+ # filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
+  mutate(Profile2 = ifelse(Profile2 == "Untreated Virome", "Untreated\nVirome", "Total\nMetaG")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "Untreated\nVirome")) %>% 
+  ggplot(aes(Time, TotRelAb, color = Phylum2)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Time, Phylum2, Profile2, Soil2) %>% summarise(MeanRelAb = mean(TotRelAb)), aes(y = MeanRelAb, group = Phylum2), size = 0.75, alpha = 1) +
+  scale_color_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:9,11,12)]),
+                    breaks = levels(tax$Phylum2)) +
+  ylab("Relative abundance") +
+  xlab("Time point (hrs. after wetup)") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  #facet_wrap(~ Soil2 + Profile2, scales = "free", nrow = 1) +
+  facet_grid(. ~ Soil2 + Profile2, scales = "free") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.title = element_blank())
+```
+
+
+```{r}
+left <- plot_grid(a + theme(legend.position = c(0.3, 0.5)),
+          b + theme(legend.position = "none"),
+          c + theme(legend.position = "none"),
+          ncol = 1,align = "hv", axis = "tblr",
+          labels = c("a", "b", "c"),
+          label_size = 15)
+
+right <- plot_grid(vn.dist.decay.p, phyla.zs.p, ncol = 1, align = "v", axis = "lr", rel_heights = c(1,2))
+
+
+#710:650
+plot_grid(left, right, nrow = 1,
+          labels = c(NA, "d"),
+          label_size = 15,
+          rel_widths = c(1,1.7))
+
+```
+
+
+Figure 5
+```{r}
+top <- plot_grid(a + theme(legend.position = c(0.3, 0.5)),
+          b + theme(legend.position = "none"),
+          c + theme(legend.position = "none"),
+          nrow = 1,align = "hv", axis = "tblr",
+          labels = c("a", "b", "c"),
+          label_size = 15)
+
+
+bottom <- plot_grid(d, phyla.zs.p, ncol = 1, align = "v", axis = "lr", rel_heights = c(1.25, 1))
+
+
+bottom <- plot_grid(d, phyla.ra.p, ncol = 1, rel_heights = c(1.25, 1), labels = c("d", "e"),
+          label_size = 15)
+
+bottom <- plot_grid(d, phyla.zs.p, ncol = 1, rel_heights = c(1.25, 1), labels = c("d", "e"),
+          label_size = 15)
+
+#780:900
+plot_grid(top, bottom, ncol = 1,
+          labels = c(NA, "d"),
+          label_size = 15,
+          rel_heights = c(1,2.4))
+
+
+
+#815:620
+plot_grid(top, d, ncol = 1,
+          labels = c(NA, "d"),
+          label_size = 15,
+          rel_heights = c(1,1.4))
+
+```
+
+
+```{r}
+otu.nest <- otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>%
+  ungroup() %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  group_by(Profile, Soil, Phylum) %>% 
+  nest()
+
+get_contrast <- function(x) {
+  phy.lm <- lm(TotRelAb ~ TimeFctr, data = x)
+  emmeans::emmeans(phy.lm, specs = trt.vs.ctrl ~ TimeFctr)$contrasts %>% as.data.frame()
+}  
+
+
+# Perform tests
+lm.res <- otu.nest %>% 
+  mutate(Contrasts = map(data, get_contrast)) %>% 
+  unnest(Contrasts) %>%
+  ungroup() %>% 
+  separate(contrast, c("TimeFctr", "Ctrl"), sep = " - ") %>% 
+  mutate(Response = ifelse(estimate < 0, "Decrease", "Increase"))
+
+lm.res
+```
+
+```{r}
+relic.key.tax.p <- otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  ungroup() %>% 
+  filter(Phylum %in% c("Actinobacteriota", "Proteobacteria")) %>% 
+  # mutate(Profile2 = ifelse(Profile2 == "Untreated Virome", "Untreated\nVirome", "Total\nMetaG")) %>% 
+  mutate(Profile2 = fct_relevel(Profile2, "Untreated\nVirome")) %>% 
+  left_join(lm.res, by = c("Phylum", "Soil", "Profile", "TimeFctr")) %>% 
+  ggplot(aes(Time, TotRelAb, color = Phylum2)) +
+  geom_point(alpha = 0.8) +
+  geom_line(data = . %>% group_by(Time, Phylum2, Profile2, Soil2) %>% summarise(MeanRelAb = mean(TotRelAb)), aes(y = MeanRelAb, group = Phylum2), size = 0.75, alpha = 1) +
+  geom_point(data = . %>% filter(p.value < 0.05) %>% group_by(Time, Phylum2, Profile2, Soil2, Response) %>% summarise(MaxRelAb = max(TotRelAb)), aes(y = MaxRelAb + 0.02, shape = Response), color = "gray25") +
+  scale_color_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:9,11,12)]),
+                    breaks = levels(tax$Phylum2)) +
+  ylab("Relative abundance") +
+  xlab("Time point (hrs. after wetup)") +
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01)) +
+  scale_shape_manual(name = "Abundance response\nrelative to dry soil",values = c(25,24)) +
+  #facet_wrap(~ Soil2 + Profile2, scales = "free", nrow = 1) +
+  facet_grid(. ~ Soil2 + Profile2, scales = "free") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right")
+
+
+relic.key.tax.p
 ```
 
 Figure 5
@@ -286,13 +656,107 @@ top <- plot_grid(a + theme(legend.position = c(0.3, 0.5)),
           labels = c("a", "b", "c"),
           label_size = 15)
 
-#815:620
-plot_grid(top, d, ncol = 1,
+bottom <- plot_grid(d, relic.key.tax.p, ncol = 1, rel_heights = c(1.25, 1), labels = c("d", "e"),
+          label_size = 15)
+
+#780:900
+plot_grid(top, bottom, ncol = 1,
           labels = c(NA, "d"),
           label_size = 15,
-          rel_heights = c(1,1.4))
+          rel_heights = c(1,2.4))
 
 ```
+
+
+```{r}
+otu.nest <- otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  mutate(ZS = TotRelAb) %>% 
+  ungroup() %>% 
+  mutate(Microcosm = paste(Soil, Soil2, TimeFctr, Status, Replicate), sep = ".") %>% 
+  select(Soil, Microcosm, Profile, Phylum, ZS) %>% 
+  spread(key = Profile, value = ZS) %>% 
+  filter(!is.nan(TotalMG) & !is.nan(ViromeN)) %>% 
+  group_by(Soil, Phylum) %>% 
+  nest()
+
+
+get_cor <- function(x) {
+  cor.test(x$TotalMG, x$ViromeN, method = "spearman", alternative = "greater") %>% broom::tidy()
+}  
+
+# Perform tests
+cor.res <- otu.nest %>% 
+  mutate(Correlation = map(data, get_cor))
+
+# Get the significant taxa
+cor.sig <- unnest(cor.res, Correlation) %>% 
+  ungroup() %>% 
+  group_by(Soil) %>% 
+  mutate(p.adjusted = p.adjust(p.value)) %>% 
+  filter(p.adjusted < 0.05)
+
+cor.sig
+```
+
+```{r}
+otu.nest <- otu %>% 
+  tidy_otu() %>% 
+  filter(!OTU_ID %in% vd.ids) %>% 
+  group_by(SampleID) %>% 
+  mutate(RelAb = Count/sum(Count)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  group_by(SampleID, Phylum2, Phylum) %>% 
+  summarise(TotRelAb = sum(RelAb)) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Soil %in% c("Hopland", "McLaughlin") & Time > 24)) %>% 
+  filter(str_detect(Soil, "Jepson")) %>% 
+  group_by(Profile, Profile2, Soil, Soil2, Phylum2, Phylum) %>% 
+  mutate(ZS = (TotRelAb - mean(TotRelAb))/sd(TotRelAb)) %>% 
+  #mutate(ZS = TotRelAb) %>% 
+  group_by(Soil, TimeFctr, Profile, Phylum) %>% 
+  summarise(MeanZS = mean(ZS)) %>% 
+  ungroup() %>% 
+  select(Soil, TimeFctr, Profile, Phylum, MeanZS) %>% 
+  spread(key = Profile, value = MeanZS) %>% 
+  filter(!is.nan(TotalMG) & !is.nan(ViromeN)) %>% 
+  group_by(Soil, Phylum) %>% 
+ # group_by(Phylum) %>% 
+  nest()
+
+get_cor <- function(x) {
+  cor.test(x$TotalMG, x$ViromeN, method = "pearson", alternative = "greater") %>% broom::tidy()
+}  
+
+# Perform tests
+cor.res <- otu.nest %>% 
+  mutate(Correlation = map(data, get_cor))
+
+# Get the significant taxa
+cor.sig <- unnest(cor.res, Correlation) %>% 
+ # group_by(Soil) %>% 
+  ungroup() %>% 
+  mutate(p.adjusted = p.adjust(p.value)) %>% 
+  filter(p.value < 0.05)
+
+cor.sig
+```
+
 
 Retrieve ids of MAGs detected in each profile type for both Jepsons soils
 ```{r}
@@ -309,6 +773,7 @@ jb.tm.map <- map %>% filter(Soil == "JepsonBot") %>% filter(Profile == "TotalMG"
 filter_otu <- function(filt.map){
   filt.otu <- otu[,match(filt.map$SampleID, colnames(otu))]
   filt.otu <- filt.otu[rowSums(filt.otu)>0,]
+  filt.otu <- filt.otu[!rownames(filt.otu) %in% vd.ids,]
   filt.otu
 }
 
@@ -366,8 +831,8 @@ otu.nest <- otu %>%
   inner_join(map, by = "SampleID") %>% 
   filter(Profile != "ViromeD") %>% 
   filter(!(Status == "Dry" & TimeFctr == "T6")) %>%
-  mutate(Overlap = case_when(Soil == "JepsonBot" & OTU_ID %in% jb.vn.ids ~ TRUE,
-                             Soil == "JepsonTop" & OTU_ID %in% jt.vn.ids ~ TRUE,
+  mutate(Overlap = case_when(Soil == "JepsonBot" & OTU_ID %in% jb.vn.ids & OTU_ID %in% jb.tm.ids ~ TRUE,
+                             Soil == "JepsonTop" & OTU_ID %in% jt.vn.ids & OTU_ID %in% jb.tm.ids ~ TRUE,
                              TRUE ~ FALSE)) %>% 
   filter(Overlap) %>% 
   mutate(Microcosm = paste(Soil, Soil2, TimeFctr, Status, Replicate), sep = ".") %>% 
@@ -397,6 +862,10 @@ wilcox.sig <- rbind(unnest(wilcox.test, Wilcox_greater), unnest(wilcox.test, Wil
   group_by(Soil, alternative) %>% 
   mutate(p.adjusted = p.adjust(p.value)) %>% 
   filter(p.adjusted < 0.05)
+
+wilcox.sig %>% 
+  group_by(Soil, alternative) %>% 
+  count()
 ```
 
 Plot the abundances of each MAG detected in both total metagenomes and viromes and highlight significant taxa
@@ -437,14 +906,14 @@ ranked.ab.df <- otu %>%
 
 #Plot
 pyramid.p <- ranked.ab.df %>% 
-  ggplot(aes(SignMeanRelAbLim, reorder(paste(Soil,OTU_ID), Rank))) +
+  ggplot(aes(SignMeanRelAb, reorder(paste(Soil,OTU_ID), Rank))) +
   geom_bar(stat = "identity", width = 0.75, aes(fill = Profile)) +
   geom_point(data = . %>% filter(alternative == "less" & Profile == "ViromeN"), aes(color = Phylum2), size = 2) +
   guides(fill = F) +
   scale_fill_manual(values = profile.pal[c(3,2)]) +
   scale_color_manual(values = c("gray25", prism.pal[c(1:9,11,12)]),
                      breaks = levels(tax$Phylum2)) +
-  facet_wrap(~ Soil2, scales = "free") +
+  facet_wrap(~ Soil2, scales = "free_y") +
   xlab("Relative abundance\n(untreated viromes | total metagenomes)") +
   ylab("MAGs co-detected in\nuntreated viromes and total metagenomes") +
   theme_bw() +
@@ -457,3 +926,75 @@ pyramid.p <- ranked.ab.df %>%
 #600:705  
 pyramid.p
 ```
+
+```{r}
+left <- plot_grid(a + theme(legend.position = c(0.3, 0.5)),
+          b + theme(legend.position = "none"),
+          c + theme(legend.position = "none"),
+          ncol = 1,align = "hv", axis = "tblr",
+          labels = c("a", "b", "c"),
+          label_size = 15)
+
+#710:650
+plot_grid(left, pyramid.p, nrow = 1,
+          labels = c(NA, "d"),
+          label_size = 15,
+          rel_widths = c(1,1.7))
+
+```
+
+
+```{r}
+percent.ranks <- otu %>% 
+  rel_ab() %>% 
+  tidy_otu() %>% 
+  filter(Count > 0) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile != "ViromeD") %>% 
+  filter(!(Status == "Dry" & TimeFctr == "T6")) %>%
+  mutate(Overlap = case_when(Soil == "JepsonBot" & OTU_ID %in% jb.vn.ids & OTU_ID %in% jb.tm.ids ~ TRUE,
+                             Soil == "JepsonTop" & OTU_ID %in% jt.vn.ids & OTU_ID %in% jb.tm.ids ~ TRUE,
+                             TRUE ~ FALSE)) %>% 
+  filter(Overlap) %>% 
+  mutate(Microcosm = paste(Soil, Soil2, TimeFctr, Status, Replicate, sep = ".")) %>% 
+  select(Soil, Microcosm, Profile, OTU_ID, Count) %>% 
+  spread(key = Profile, value = Count) %>% 
+  group_by(Microcosm) %>% 
+  mutate(TMG_Rank = percent_rank(-TotalMG),
+         VN_Rank = percent_rank(-ViromeN)) %>% 
+  mutate(TMG_Rank = ifelse(is.na(TMG_Rank), 1, TMG_Rank),
+         VN_Rank = ifelse(is.na(VN_Rank), 1, VN_Rank)) %>%
+  ungroup() %>% 
+  mutate(RankDiff = TMG_Rank - VN_Rank) %>% 
+  separate(Microcosm, c("Soil", "Soil2", "TimeFctr", "Status", "Replicate") , sep = "\\.")
+
+percent.ranks %>% 
+  inner_join(wilcox.sig, by = c("OTU_ID", "Soil")) %>% 
+  filter(alternative == "less") %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  ggplot(aes(TimeFctr, RankDiff)) +
+  geom_point(alpha = 0.05) +
+  geom_hline(yintercept = 0) +
+  facet_grid(Soil ~ Phylum)
+
+
+percent.ranks %>% 
+  inner_join(wilcox.sig, by = c("OTU_ID", "Soil")) %>% 
+  filter(alternative == "less") %>% 
+  group_by(Soil, OTU_ID, TimeFctr) %>% 
+  summarise(MeanRankDiff = mean(RankDiff)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  ggplot(aes(TimeFctr, MeanRankDiff)) +
+  geom_line(aes(group = OTU_ID), alpha = 0.2) +
+  geom_hline(yintercept = 0) +
+  facet_grid(Soil ~ Phylum)
+
+percent.ranks %>% 
+  group_by(Soil, OTU_ID, TimeFctr) %>% 
+  summarise(MeanRankDiff = mean(VN_Rank)) %>% 
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  ggplot(aes(TimeFctr, MeanRankDiff)) +
+  geom_line(aes(group = OTU_ID), alpha = 0.2) +
+  facet_grid(Soil ~ Phylum)
+```
+

@@ -1,0 +1,366 @@
+Load libraries
+```{r}
+library(DESeq2)
+library(rcartocolor)
+library(RColorBrewer)
+library(biobroom)
+library(UpSetR)
+library(cowplot)
+source("../General/general_functions.R")
+library(tidyverse)
+```
+
+Load data and format
+```{r}
+counts <- readRDS("../Data/rare_mag25_count.RDS")
+map <- readRDS("../Data/wetup_map.RDS")
+
+vd.map <- filter(map, Profile == "ViromeD")
+vd.counts <- counts[,colnames(counts) %in% vd.map$SampleID]
+vd.counts <- vd.counts[rowSums(vd.counts)>0,]
+vd.ids <- row.names(vd.counts)
+
+
+#Remove singletons
+counts <- counts[rowSums(counts>0) > 1, ]
+counts <- counts[!row.names(counts) %in% vd.ids, match(map$SampleID, colnames(counts))]
+```
+
+Filter count table by soil type
+```{r}
+jpb.map <- filter(map, Soil == "JepsonBot" & Profile == "ViromeN")
+jpb.counts <- counts[,colnames(counts) %in% jpb.map$SampleID]
+jpb.counts <- jpb.counts[rowSums(jpb.counts)>0,]
+
+jpt.map <- filter(map, Soil == "JepsonTop" & Profile == "ViromeN")
+jpt.counts <- counts[,colnames(counts) %in% jpt.map$SampleID]
+jpt.counts <- jpt.counts[rowSums(jpt.counts)>0,]
+```
+
+Perform analysis
+```{r}
+#Function to run model and retrieve results
+get_deseq_result <- function(filt.map, filt.counts) {
+  dds <- DESeqDataSetFromMatrix(countData = filt.counts,
+                                   colData = filt.map,
+                                   design = ~ TimeFctr)
+
+  cts <- counts(dds)
+  geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+  dds <- estimateSizeFactors(dds, geoMeans=geoMeans)
+
+  dds <- DESeq(dds, test = "LRT", reduced = ~1)
+  res <- results(dds) %>% tidy() %>% dplyr::rename("OTU_ID" = "gene")
+  res
+}
+
+#Run models
+jpb.res <- get_deseq_result(jpb.map, jpb.counts) %>% mutate(Soil = "JepsonBot")
+jpt.res <- get_deseq_result(jpt.map, jpt.counts) %>% mutate(Soil = "JepsonTop")
+
+#Aggregate results
+all.res <- rbind(jpb.res, jpt.res) %>%
+  filter(!is.na(p.value)) %>%
+  mutate(OTU.Soil = paste(OTU_ID, Soil, sep = "."))
+```
+
+Define palettes and taxa to plot
+```{r}
+int.taxa <- c("Acidobacteriota", "Actinobacteriota", "Bacteroidota", "Chloroflexota", "Gemmatimonadota", "Firmicutes", "Myxococcota", "Patescibacteria", "Proteobacteria", "Thermoproteota", "Verrucomicrobiota")
+
+prism.pal <- carto_pal(12, "Prism")
+cluster.pal <- carto_pal(7, "Emrld")[c(2,4)]
+soil.pal <- rcartocolor::carto_pal(12, "Bold")[c(3,5,6,4)]
+text.size = 12
+```
+
+Load data and format
+```{r}
+tax <- readRDS("../Data/mag_tax.RDS") %>% 
+  mutate(Phylum2 = ifelse(Phylum %in% int.taxa, Phylum, "Other")) %>% 
+  mutate(Phylum2 = fct_relevel(Phylum2, "Other"))
+
+map <- readRDS("../Data/wetup_map.RDS")
+
+
+all.sig <- filter(all.res, p.adjusted < 0.05) 
+
+otu <- readRDS("../Data/rare_mag25_tmean.RDS")
+#Remove singletons
+otu <- otu[rowSums(otu>0) > 1, ]
+otu <- otu[!row.names(otu) %in% vd.ids, match(map$SampleID, colnames(otu))]
+```
+
+Generate a matrix with the mean z-scored abundances of each significant OTU in its corresponding soil
+```{r}
+zs.tidy <- otu %>%
+  as.data.frame() %>% 
+  tidy_otu() %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "ViromeN") %>% 
+  group_by(Soil, TimeFctr, OTU_ID) %>%
+  summarise(MeanCount = mean(Count)) %>%
+  ungroup() %>% 
+  mutate(OTU.Soil = paste(OTU_ID, Soil, sep = ".")) %>% 
+  filter(OTU.Soil %in% all.sig$OTU.Soil) %>% 
+  group_by(OTU.Soil) %>% 
+  mutate(MeanZS = (MeanCount - mean(MeanCount))/sd(MeanCount)) %>% 
+  separate(OTU.Soil, c("OTU_ID", "Soil"), sep = "\\.", remove = F) %>% 
+  mutate(Time = case_when(TimeFctr == "T0" ~ 0,
+                          TimeFctr == "T1" ~ 24,
+                          TimeFctr == "T2" ~ 48,
+                          TimeFctr == "T3" ~ 72,
+                          TimeFctr == "T4" ~ 120,
+                          TimeFctr == "T5" ~ 168,
+                          TimeFctr == "T6" ~ 240))
+
+zs.mtx <- zs.tidy %>% 
+  select(OTU.Soil, TimeFctr, MeanZS) %>% 
+  spread(key = TimeFctr, value = MeanZS)
+
+zs.mtx <- as.data.frame(zs.mtx) 
+rownames(zs.mtx) <- zs.mtx$OTU.Soil
+zs.mtx <- zs.mtx[,-1] 
+
+zs.mtx <- zs.mtx[rowSums(is.na(zs.mtx)) == 0,]
+```
+
+Perform hierarchical clustering and get the set of clusters and the order of OTUs
+```{r}
+k <- 2
+dist <- dist(as.matrix(zs.mtx)) 
+clust <- hclust(dist, method = "average") 
+ord.names <- clust$labels[clust$order] 
+ord.tmp <- data.frame(OTU.Soil = ord.names, order = 1:length(ord.names))
+cut <- cutree(clust[c(1,2,4)], k = k)
+ord.tmp$Cluster <- as.factor(cut[ord.tmp$OTU.Soil])
+
+#Explore patterns
+zs.tidy %>% 
+  filter(MeanCount > 0) %>% 
+  inner_join(ord.tmp, by = "OTU.Soil") %>%
+  ggplot() +
+  geom_tile(aes(TimeFctr, reorder(OTU.Soil, order), fill =MeanZS)) +
+  scale_fill_viridis_c() +
+  facet_grid(Cluster ~ . , scales = "free", space = "free") +
+  theme_bw() +
+  theme(axis.text.y = element_blank())
+```
+
+Update the labels of clusters so that they are in chronological order
+```{r}
+ord <- ord.tmp %>% 
+  mutate(Cluster = case_when(Cluster == 1 ~ "MAG trend group 1",
+                             Cluster == 2 ~ "MAG trend group 2")) %>% 
+  separate(OTU.Soil, c("OTU_ID", "Soil"), sep = "\\.", remove = F)
+```
+
+Plot temporal trends of individual MAGs
+```{r}
+mag.zs.tidy <- ord %>% 
+  right_join(zs.tidy) 
+
+mag.trend.p <- ord %>% 
+  right_join(zs.tidy) %>% 
+  ggplot(aes(Time, MeanZS)) +
+  geom_line(aes(group = OTU.Soil, color = Cluster), alpha = 0.2) +
+  geom_line(data = . %>% group_by(Cluster, Time) %>% summarise(CMeanZS = mean(MeanZS)), aes(y = CMeanZS, group = Cluster), color = "gray15", size = 1) +
+  facet_wrap(~ Cluster, ncol = 1) +
+  xlab("Time point\n(hrs.post-wetup)") +
+  ylab("MAG abundance (z-score)") +
+  scale_color_manual(values = cluster.pal) +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none",
+        strip.text = element_text(color = "white"),
+        strip.background = element_rect(fill = "gray25"))
+
+mag.trend.p
+```
+
+Plot aggregated abundances for temporal trends across time points
+```{r}
+mag.trend.relab.p <- otu %>% 
+  rel_ab() %>% 
+  tidy_otu() %>% 
+  mutate(Count = Count/100) %>% 
+  inner_join(map, by = "SampleID") %>% 
+  filter(Profile == "TotalMG") %>% 
+  group_by(Soil, Soil2, Time, TimeFctr, OTU_ID) %>% 
+  summarise(Mean = mean(Count)) %>% 
+  mutate(OTU.Soil = paste(OTU_ID, Soil, sep = ".")) %>% 
+  inner_join(ord, by = "OTU.Soil") %>%
+  group_by(TimeFctr, Time, Soil2, Cluster) %>% 
+  summarise(SummedMean = sum(Mean)) %>% 
+  ggplot(aes(paste(TimeFctr, " (", Time, " hrs.)", sep = ""), SummedMean, fill = Cluster)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = cluster.pal) +
+  facet_grid(. ~ Soil2) +
+  xlab("Time point (hrs. after wetup)") +
+  ylab("Relative abundance") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom",
+        legend.title = element_blank(),
+        strip.text = element_text(color = "white"),
+        strip.background = element_rect(fill = "gray25"))
+
+mag.trend.relab.p
+```
+
+Identify MAGs that were detected as differentially abundant across multiple soils and examine the combination of temporal trends they exhibited
+```{r}
+multiple.soils <- ord %>% 
+  group_by(OTU_ID) %>% 
+  mutate(Total = n()) %>% 
+  filter(Total > 1) %>%
+  group_by(Cluster, OTU_ID) %>% 
+  dplyr::count() %>% 
+  ungroup()
+
+mag.trend.upset.p <- upset(fromList(list("MAG trend group 1" = filter(multiple.soils, Cluster == "MAG trend group 1")$OTU_ID,
+                    "MAG trend group 2" = filter(multiple.soils, Cluster == "MAG trend group 2")$OTU_ID)),
+      number.angles = 0,
+      nintersects = NA,
+      point.size = 3,
+      line.size = 1.5,
+      sets = c("MAG trend group 1", "MAG trend group 2"),
+      keep.order = T,
+      sets.bar.color = cluster.pal,
+      set_size.show = F,
+      text.scale = c(1.5,1.25,1.5,1.25,1.25,1.25))
+
+mag.trend.upset.p
+```
+Put together
+```{r}
+#560:615
+plot_grid(mag.trend.relab.p, mag.trend.upset.p, ncol = 1, labels = c("a", "b"), label_size = 15, rel_heights = c(1.5, 1))
+#400:250
+mag.trend.upset.p
+```
+
+Plot the taxonomic composition of each temporal group
+```{r}
+mag.cluster.tax.p <- ord %>%
+  inner_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+  ggplot(aes(Cluster, fill = Phylum2)) +
+  geom_bar(position = "stack")+
+  scale_fill_manual(name = "Phylum", values = c("gray25", prism.pal[c(1:7,9,11,12)])) +
+  xlab("Temporal Cluster") +
+  ylab("# of MAGs") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_blank())
+
+mag.cluster.tax.p
+```
+
+Generate donut plots highlighting the contribution of actinos and proteos to each temporal group
+```{r}
+#Calculate fractions
+mag.tax.clust.donut.df <- ord %>% 
+  left_join(tax, by = c("OTU_ID" = "MAG_ID")) %>% 
+   mutate(Phylum3 = case_when(Phylum %in% c("Actinobacteriota", "Proteobacteria") ~ Phylum,
+                                 is.na(Phylum) ~ "Unclassified", 
+                                 TRUE ~ "Other")) %>% 
+  mutate(Phylum3 = fct_relevel(Phylum3, "Actinobacteriota", "Proteobacteria")) %>% 
+  group_by(Cluster, Phylum3) %>% 
+  summarise(Count = n()) %>% 
+  ungroup() %>% 
+  arrange(Cluster, Phylum3) %>% 
+  group_by(Cluster) %>% 
+  mutate(Fraction = Count/sum(Count)) %>% 
+  mutate(ymax = cumsum(Fraction),
+         nCluster = n()) %>% 
+  mutate(ymin = c(0, ymax[1:nCluster - 1]))
+
+#Plot
+mag.donut.p <- mag.tax.clust.donut.df %>% 
+  ggplot() +
+  geom_rect(aes(ymax = ymax, ymin = ymin, xmax = 4, xmin = 3, fill = Phylum3)) +
+  geom_text(data = . %>% group_by(Cluster) %>% summarise(Total = sum(Count)), aes(2, 0, label = Total), size = 5) +
+  scale_fill_manual(name = "Phylum", values = c(prism.pal[c(2,9)], "gray25", "gray75"),
+                     breaks = c("Actinobacteriota", "Proteobacteria", "Other", "Unclassified")) +
+  coord_polar(theta="y") + 
+  xlim(c(2, 4)) +
+  facet_grid(Cluster ~ .) +
+  theme_void() +
+  theme(text = element_text(size = 12),
+        legend.position = "right")
+
+mag.donut.p
+```
+Perform hypergeometric tests to assess over/under representation of phyla within each temporal group
+```{r}
+#Filter phyla with less than 10 members in the dataset
+phylum.filt <- tax %>% 
+  filter(MAG_ID %in% all.res$OTU_ID) %>% 
+  group_by(Phylum2) %>% 
+  mutate(PhylumSize = n()) %>%
+  ungroup() %>%
+  filter(PhylumSize >=10) %>% 
+  filter(Phylum2 != "Other")
+
+#Get the ids of phyla and MAGs that will be used in the tests
+phylum.ids <- phylum.filt$Phylum2 %>% unique()
+phylum.universe <- phylum.filt$MAG_ID %>% unique()
+
+#Run tests
+phylum.enrichment.list.trt <- list()
+for(response in unique(ord$Cluster)){
+  sig.response <- filter(ord, Cluster == response)$OTU_ID %>% unique()
+  hgt.over.list <- list()
+  hgt.under.list <- list()
+  for(phylum in phylum.ids){
+    phylum.members <- filter(phylum.filt, Phylum2 == phylum)$MAG_ID
+    cluster.positive <- sum(sig.response %in% phylum.members)
+    universe.positive <- sum(unique(ord$OTU_ID) %in% phylum.members)
+    universe.negative <- sum(!unique(ord$OTU_ID) %in% phylum.members)
+    cluster.size<- length(sig.response)
+    hgt.over.list[[phylum]] <- phyper(cluster.positive, universe.positive, universe.negative, cluster.size, lower.tail = F)
+    hgt.under.list[[phylum]] <- phyper(cluster.positive, universe.positive, universe.negative, cluster.size, lower.tail = T)
+  }
+  hgt.over <- plyr::ldply(hgt.over.list, function(x) x)
+  names(hgt.over) <- c("Phylum2", "pval")
+  hgt.over <- mutate(hgt.over, Test = "Over")
+  hgt.under <- plyr::ldply(hgt.under.list, function(x) x)
+  names(hgt.under) <- c("Phylum2", "pval")
+  hgt.under <- mutate(hgt.under, Test = "Under")
+  hgt <- rbind(hgt.over, hgt.under)
+  phylum.enrichment.list.trt[[response]] <- hgt
+}
+
+
+phylum.enrichment.trt <- plyr::ldply(phylum.enrichment.list.trt, function(x) x) %>% 
+  dplyr::rename("Cluster" = ".id") %>% 
+  ungroup() %>% 
+  group_by(Cluster) %>% 
+  mutate(padj = p.adjust(pval)) 
+
+#Plot
+mag.phylum.hgt.p <- phylum.enrichment.trt %>% 
+  filter(padj < 0.05) %>% 
+  mutate(Test2 = ifelse(Test == "Over", "Overrepresentation", "Underrepresentation")) %>% 
+  ggplot(aes(Cluster, Phylum2, fill = Test2, shape = Test2)) +
+  geom_point(size = 5) +
+  scale_fill_manual(name = "Phylum membership\nin trend group", values = RColorBrewer::brewer.pal(3, "Set1")[c(2,1)]) +
+  scale_shape_manual(name = "Phylum membership\nin trend group", values = c(24,25)) +
+  guides(fill=guide_legend(nrow=2, byrow=TRUE)) +
+  ylab("Predicted host phylum") +
+  theme_bw() +
+  theme(text = element_text(size = text.size),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_blank(),
+        legend.position = "top")
+
+mag.phylum.hgt.p
+```
+
+```{r}
+#655:440
+plot_grid(mag.cluster.tax.p, mag.phylum.hgt.p + theme(legend.title = element_blank()), labels = c("a", "b"), label_size = 15, rel_widths = c(1.5,1))
+```
